@@ -1330,7 +1330,9 @@ function _M.new(opts)
         -- fill-in the hash part for easy lookup
         self.targets[target.ip] = self.targets[target.ip] or {}
         self.targets[target.ip][target.port] = self.targets[target.ip][target.port] or {}
-        self.targets[target.ip][target.port][target.hostname] = target
+        if target.hostname then
+            self.targets[target.ip][target.port][target.hostname] = target
+        end
       end
 
       return true
