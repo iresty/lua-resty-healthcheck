@@ -906,7 +906,8 @@ end
 -- @param self the checker object this timer runs on
 -- @param health_mode either "healthy" or "unhealthy" to indicate what check
 local function checker_callback(premature, self, health_mode)
-  if premature or self.stopping then
+  if premature or self.stopping or
+     (self.can_destroy and self.can_destroy(self)) then
     self.timer_count = self.timer_count - 1
     return
   end
@@ -1278,6 +1279,11 @@ function _M.new(opts)
 
   if opts.test then
     self.test_get_counter = test_get_counter
+  end
+
+  if opts.can_destroy then
+    assert(type(opts.can_destroy) == "function", "required option 'can_destroy' should be function")
+    self.can_destroy = opts.can_destroy
   end
 
   assert(self.name, "required option 'name' is missing")
