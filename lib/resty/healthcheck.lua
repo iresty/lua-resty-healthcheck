@@ -781,8 +781,15 @@ function checker:run_single_check(ip, port, hostname, hostheader)
     end
   end
 
+  local req_headers = self.checks.active.req_headers
+  local headers = table.concat(req_headers, "\r\n")
+  if #headers > 0 then
+    headers = headers .. "\r\n"
+  end
+
   local path = self.checks.active.http_path
-  local request = ("GET %s HTTP/1.0\r\nHost: %s\r\n\r\n"):format(path, hostheader or hostname)
+  local request = ("GET %s HTTP/1.0\r\n%sHost: %s\r\n\r\n"):format(path, headers, hostheader or hostname or ip)
+  self:log(DEBUG, "request head: ", request)
 
   local bytes
   bytes, err = sock:send(request)
@@ -1173,6 +1180,7 @@ local defaults = {
         timeouts = 3,
         http_failures = 5,
       },
+      req_headers = {""},
     },
     passive = {
       type = "http",
