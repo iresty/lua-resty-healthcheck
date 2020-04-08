@@ -838,8 +838,15 @@ function checker:run_single_check(ip, port, hostname, hostheader)
     end
   end
 
+  local req_headers = self.checks.active.req_headers
+  local headers = table.concat(req_headers, "\r\n")
+  if #headers > 0 then
+    headers = headers .. "\r\n"
+  end
+
   local path = self.checks.active.http_path
-  local request = ("GET %s HTTP/1.0\r\nHost: %s\r\n\r\n"):format(path, hostheader or hostname)
+  local request = ("GET %s HTTP/1.0\r\n%sHost: %s\r\n\r\n"):format(path, headers, hostheader or hostname or ip)
+  self:log(DEBUG, "request head: ", request)
 
   local bytes
   bytes, err = sock:send(request)
@@ -1064,11 +1071,17 @@ function checker:event_handler(event_name, ip, port, hostname)
       self:log(DEBUG, "event: target added '", hostname or "", "(", ip, ":", port, ")'")
     end
     do
-      local from = target_found.internal_health
-      local to = event_name
-      self:log(DEBUG, "event: target status '", hostname or "", "(", ip, ":", port,
-                      ")' from '", from == "healthy" or from == "mostly_healthy",
-                      "' to '",   to   == "healthy" or to   == "mostly_healthy", "'")
+      local from_status = target_found.internal_health
+      local to_status = event_name
+      local from = from_status == "healthy" or from_status == "mostly_healthy"
+      local to = to_status == "healthy" or to_status == "mostly_healthy"
+
+      if from ~= to then
+        self.status_ver = self.status_ver + 1
+      end
+
+      self:log(DEBUG, "event: target status '", hostname or "", "(", ip, ":",
+               port, ")' from '", from, "' to '", to, "', ver: ", self.status_ver)
     end
     target_found.internal_health = event_name
 
@@ -1202,6 +1215,7 @@ local defaults = {
   name = NO_DEFAULT,
   shm_name = NO_DEFAULT,
   type = NO_DEFAULT,
+  status_ver = 0,
   checks = {
     active = {
       type = "http",
@@ -1222,6 +1236,7 @@ local defaults = {
         timeouts = 3,
         http_failures = 5,
       },
+      req_headers = {""},
     },
     passive = {
       type = "http",
@@ -1387,7 +1402,7 @@ function _M.new(opts)
         -- fill-in the hash part for easy lookup
         self.targets[target.ip] = self.targets[target.ip] or {}
         self.targets[target.ip][target.port] = self.targets[target.ip][target.port] or {}
-        self.targets[target.ip][target.port][target.hostname] = target
+        self.targets[target.ip][target.port][target.hostname or target.ip] = target
       end
 
       return true
