@@ -88,6 +88,12 @@ for the complete API.
 
 Versioning is strictly based on [Semantic Versioning](https://semver.org/)
 
+=======
+### Unreleased
+
+* fix: replace timer and node-wide locks with resty-timer, to prevent interval
+  skips [#59](https://github.com/Kong/lua-resty-healthcheck/pull/59)
+
 ### 1.2.0 (13-Feb-2020)
 
  * Adds `set_all_target_statuses_for_hostname`, which sets the targets for
