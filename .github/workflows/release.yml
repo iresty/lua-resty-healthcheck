@@ -5,7 +5,7 @@ on:
     branches:
       - "master"
     paths:
-      - 'rockspec/**'
+      - 'rockspecs/**'
 
 jobs:
   release:
