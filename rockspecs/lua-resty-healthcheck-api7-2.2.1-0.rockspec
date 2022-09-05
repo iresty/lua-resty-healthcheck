@@ -14,6 +14,7 @@ description = {
    homepage = "https://github.com/api7/lua-resty-healthcheck",
    license = "Apache 2.0"
 }
+
 dependencies = {
    "lua-resty-worker-events = 1.0.0"
 }
