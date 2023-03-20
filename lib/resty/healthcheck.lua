@@ -1457,6 +1457,9 @@ function _M.new(opts)
     end
 
     self.ev_callback = function(data, event)
+      if opts.ev_callback then
+        opts.ev_callback(self.name, event, data)
+      end
       -- just a wrapper to be able to access `self` as a closure
       return self:event_handler(event, data.ip, data.port, data.hostname)
     end
