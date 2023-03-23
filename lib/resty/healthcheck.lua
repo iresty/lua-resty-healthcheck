@@ -1507,13 +1507,7 @@ function _M.get_target_list(name, shm_name)
   end)
 
   for _, target in ipairs(self.targets) do
-    target.counter = {
-      success = 0,
-      http_failure = 0,
-      tcp_failure = 0,
-      timeout_failure = 0,
-    }
-    locking_target(self, ip, port, hostname, function()
+    local ok = run_mutexed_fn(false, self, ip, port, hostname, function()
       local counter = self.shm:get(key_for(self.TARGET_COUNTER,
         target.ip, target.port, target.hostname))
       target.counter = {
@@ -1523,6 +1517,15 @@ function _M.get_target_list(name, shm_name)
         timeout_failure = ctr_get(counter, CTR_TIMEOUT),
       }
     end)
+
+    if not ok then
+      target.counter = {
+        success = 0,
+        http_failure = 0,
+        tcp_failure = 0,
+        timeout_failure = 0,
+      }
+    end
   end
 
   if not ok then
