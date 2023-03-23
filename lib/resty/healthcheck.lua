@@ -1479,4 +1479,38 @@ function _M.new(opts)
 end
 
 
+function _M.get_target_list(name, shm_name)
+  local self = {
+    name = name,
+    shm_name = shm_name,
+    log = checker.log,
+  }
+  self.shm = ngx.shared[tostring(shm_name)]
+  assert(self.shm, ("no shm found by name '%s'"):format(shm_name))
+  self.TARGET_STATE     = SHM_PREFIX .. self.name .. ":state"
+  self.TARGET_LIST      = SHM_PREFIX .. self.name .. ":target_list"
+  self.TARGET_LIST_LOCK = SHM_PREFIX .. self.name .. ":target_list_lock"
+  self.LOG_PREFIX       = LOG_PREFIX .. "(" .. self.name .. ") "
+
+  local ok, err = run_fn_locked_target_list(false, self, function(target_list)
+    self.targets = target_list
+    for _, target in ipairs(self.targets) do
+      local state_key = key_for(self.TARGET_STATE, target.ip, target.port, target.hostname)
+      target.status = INTERNAL_STATES[self.shm:get(state_key)]
+      if not target.hostheader then
+          target.hostheader = nil
+      end
+    end
+
+    return true
+  end)
+
+  if not ok then
+    return nil, "Error loading target list: " .. err
+  end
+
+  return self.targets
+end
+
+
 return _M
