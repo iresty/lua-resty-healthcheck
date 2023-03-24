@@ -1488,6 +1488,7 @@ function _M.get_target_list(name, shm_name)
   self.shm = ngx.shared[tostring(shm_name)]
   assert(self.shm, ("no shm found by name '%s'"):format(shm_name))
   self.TARGET_STATE     = SHM_PREFIX .. self.name .. ":state"
+  self.TARGET_COUNTER   = SHM_PREFIX .. self.name .. ":counter"
   self.TARGET_LIST      = SHM_PREFIX .. self.name .. ":target_list"
   self.TARGET_LIST_LOCK = SHM_PREFIX .. self.name .. ":target_list_lock"
   self.LOG_PREFIX       = LOG_PREFIX .. "(" .. self.name .. ") "
@@ -1504,6 +1505,28 @@ function _M.get_target_list(name, shm_name)
 
     return true
   end)
+
+  for _, target in ipairs(self.targets) do
+    local ok = run_mutexed_fn(false, self, ip, port, hostname, function()
+      local counter = self.shm:get(key_for(self.TARGET_COUNTER,
+        target.ip, target.port, target.hostname))
+      target.counter = {
+        success = ctr_get(counter, CTR_SUCCESS),
+        http_failure = ctr_get(counter, CTR_HTTP),
+        tcp_failure = ctr_get(counter, CTR_TCP),
+        timeout_failure = ctr_get(counter, CTR_TIMEOUT),
+      }
+    end)
+
+    if not ok then
+      target.counter = {
+        success = 0,
+        http_failure = 0,
+        tcp_failure = 0,
+        timeout_failure = 0,
+      }
+    end
+  end
 
   if not ok then
     return nil, "Error loading target list: " .. err

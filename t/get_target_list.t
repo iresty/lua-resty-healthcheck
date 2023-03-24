@@ -66,6 +66,10 @@ qq{
                 assert(node.ip == "127.0.0.1" or node.ip == "127.0.0.2", "invalid ip")
                 assert(node.port == 2116, "invalid port")
                 assert(node.status == "healthy", "invalid status")
+                assert(node.counter.success == 1, "invalid success counter")
+                assert(node.counter.tcp_failure == 0, "invalid tcp failure counter")
+                assert(node.counter.http_failure == 0, "invalid http failure counter")
+                assert(node.counter.timeout_failure == 0, "invalid timeout failure counter")
             end
         }
     }
