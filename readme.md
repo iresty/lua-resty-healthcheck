@@ -88,50 +88,10 @@ for the complete API.
 
 Versioning is strictly based on [Semantic Versioning](https://semver.org/)
 =======
-### Releasing new versions:
-
-* update changelog below (PR's should be merged including a changelog entry)
-* based on changelog determine new SemVer version
-* create a new rockspec
-* render the docs using `ldoc` (don't do this within PR's)
-* commit as "release x.x.x" (do not include rockspec revision)
-* tag the commit with "x.x.x" (do not include rockspec revision)
-* push commit and tag
-* upload rock to luarocks: `luarocks upload rockspecs/[name] --api-key=abc`
-
 ### Unreleased
-
-* BREAKING: fallback for deprecated top-level field `type` is now removed
-  (deprecated since `0.5.0`) [#56](https://github.com/Kong/lua-resty-healthcheck/pull/56)
-* BREAKING: Bump `lua-resty-worker-events` dependency to `2.0.0`. This makes
-  a lot of the APIs in this library asynchronous as the worker events `post`
-  and `post_local` won't anymore call `poll` on a running worker automatically,
-  for more information, see:
-  https://github.com/Kong/lua-resty-worker-events#200-16-september-2020
-* BREAKING: tcp_failures can no longer be 0 on http(s) checks (unless http(s)_failures
-  are also set to 0) [#55](https://github.com/Kong/lua-resty-healthcheck/pull/55)
-* feature: Added support for https_sni [#49](https://github.com/Kong/lua-resty-healthcheck/pull/49)
-* fix: properly log line numbers by using tail calls [#29](https://github.com/Kong/lua-resty-healthcheck/pull/29)
-* fix: when not providing a hostname, use IP [#48](https://github.com/Kong/lua-resty-healthcheck/pull/48)
-* fix: makefile; make install
-* feature: added a status version field [#54](https://github.com/Kong/lua-resty-healthcheck/pull/54)
-* feature: add headers for probe request [#54](https://github.com/Kong/lua-resty-healthcheck/pull/54)
-* fix: exit early when reloading during a probe [#47](https://github.com/Kong/lua-resty-healthcheck/pull/47)
-* fix: prevent target-list from being nil, due to async behaviour [#44](https://github.com/Kong/lua-resty-healthcheck/pull/44)
-* fix: replace timer and node-wide locks with resty-timer, to prevent interval
-  skips [#59](https://github.com/Kong/lua-resty-healthcheck/pull/59)
-* change: added additional logging on posting events [#25](https://github.com/Kong/lua-resty-healthcheck/issues/25)
 * fix: do not run out of timers during init/init_worker when adding a vast
   amount of targets [#57](https://github.com/Kong/lua-resty-healthcheck/pull/57)
 
-### 1.3.0 (17-Jun-2020)
-
-* Adds support to mTLS to active healthchecks. This feature  can be used adding
-  the fields `ssl_cert` and `ssl_key`, with certificate and key respectively,
-  when creating a new healthcheck object.
-  [#41](https://github.com/Kong/lua-resty-healthcheck/pull/41)
-
->>>>>>> d0d53a5 (fix(timers) prevent exhausting timers in init/worker_init (#57)):README.md
 ### 1.2.0 (13-Feb-2020)
 
  * Adds `set_all_target_statuses_for_hostname`, which sets the targets for
