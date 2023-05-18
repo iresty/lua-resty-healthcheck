@@ -1,8 +1,8 @@
-package = "lua-resty-healthcheck-api7-master"
-version = "0-0"
+package = "lua-resty-healthcheck-api7"
+version = "2.2.4-0"
 source = {
    url = "git://github.com/api7/lua-resty-healthcheck",
-   branch = "master",
+   tag = "v2.2.4"
 }
 
 description = {
