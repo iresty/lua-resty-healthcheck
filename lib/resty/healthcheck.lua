@@ -20,7 +20,7 @@
 -- - Events will be raised in every worker, see [lua-resty-worker-events](https://github.com/Kong/lua-resty-worker-events)
 -- for details.
 --
--- @copyright 2017 Kong Inc.
+-- @copyright 2017-2020 Kong Inc.
 -- @author Hisham Muhammad, Thijs Schreijer
 -- @license Apache 2.0
 
@@ -33,12 +33,13 @@ local ipairs = ipairs
 require("table.nkeys")
 local cjson = require("cjson.safe").new()
 local table_remove = table.remove
-local utils = require("resty.healthcheck.utils")
+local resty_timer = require("resty.timer")
 local worker_events = require("resty.worker.events")
 local resty_lock = require ("resty.lock")
 local re_find = ngx.re.find
 local bit = require("bit")
-local ngx_now = ngx.now
+local ngx_worker_exiting = ngx.worker.exiting
+local ssl = require("ngx.ssl")
 
 -- constants
 local EVENT_SOURCE_PREFIX = "lua-resty-healthcheck"
@@ -134,6 +135,52 @@ local worker_color = use_color and function(str) return ("\027["..tostring(31 + 
 -- Debug function
 local function dump(...) print(require("pl.pretty").write({...})) end -- luacheck: ignore 211
 
+-- cache timers in "init", "init_worker" phases so we use only a single timer
+-- and do not run the risk of exhausting them for large sets
+-- see https://github.com/Kong/lua-resty-healthcheck/issues/40
+-- Below we'll temporarily use a patched version of ngx.timer.at, until we're
+-- past the init and init_worker phases, after which we'll return to the regular
+-- ngx.timer.at implementation
+local ngx_timer_at do
+  local callback_list = {}
+
+  local function handler(premature)
+    if premature then
+      return
+    end
+
+    local list = callback_list
+    callback_list = {}
+
+    for _, args in ipairs(list) do
+      local ok, err = pcall(args[1], ngx_worker_exiting(), unpack(args, 2, args.n))
+      if not ok then
+        ngx.log(ngx.ERR, "timer failure: ", err)
+      end
+    end
+  end
+
+  ngx_timer_at = function(...)
+    local phase = ngx.get_phase()
+    if phase ~= "init" and phase ~= "init_worker" then
+      -- we're past init/init_worker, so replace this temp function with the
+      -- real-deal again, so from here on we run regular timers.
+      ngx_timer_at = ngx.timer.at
+      return ngx.timer.at(...)
+    end
+
+    local n = #callback_list
+    callback_list[n+1] = { n = select("#", ...), ... }
+    if n == 0 then
+      -- first one, so schedule the actual timer
+      return ngx.timer.at(0, handler)
+    end
+    return true
+  end
+
+end
+
+
 local _M = {}
 
 
@@ -226,16 +273,16 @@ local function run_fn_locked_target_list(premature, self, fn)
     return
   end
 
-  local lock, lock_err = resty_lock:new(self.shm_name, {
+  local tl_lock, lock_err = resty_lock:new(self.shm_name, {
     exptime = 10,  -- timeout after which lock is released anyway
     timeout = 5,   -- max wait time to acquire lock
   })
 
-  if not lock then
+  if not tl_lock then
     return nil, "failed to create lock:" .. lock_err
   end
 
-  local pok, perr = pcall(resty_lock.lock, lock, self.TARGET_LIST_LOCK)
+  local pok, perr = pcall(tl_lock.lock, tl_lock, self.TARGET_LIST_LOCK)
   if not pok then
     self:log(DEBUG, "failed to acquire lock: ", perr)
     return nil, "failed to acquire lock"
@@ -252,7 +299,7 @@ local function run_fn_locked_target_list(premature, self, fn)
   end
 
   local ok
-  ok, err = lock:unlock()
+  ok, err = tl_lock:unlock()
   if not ok then
     -- recoverable: not returning this error, only logging it
     self:log(ERR, "failed to release lock '", self.TARGET_LIST_LOCK,
@@ -272,7 +319,7 @@ local function locking_target_list(self, fn)
 
   local ok, err = run_fn_locked_target_list(false, self, fn)
   if err == "failed to acquire lock" then
-    local _, terr = ngx.timer.at(0, run_fn_locked_target_list, self, fn)
+    local _, terr = ngx_timer_at(0, run_fn_locked_target_list, self, fn)
     if terr ~= nil then
       return nil, terr
     end
@@ -293,6 +340,8 @@ end
 --- Add a target to the healthchecker.
 -- When the ip + port + hostname combination already exists, it will simply
 -- return success (without updating `is_healthy` status).
+--
+-- *NOTE*: in non-yieldable contexts, this will be executed async.
 -- @param ip IP address of the target to check.
 -- @param port the port to check against.
 -- @param hostname (optional) hostname to set as the host header in the HTTP
@@ -380,6 +429,8 @@ end
 
 --- Remove a target from the healthchecker.
 -- The target not existing is not considered an error.
+--
+-- *NOTE*: in non-yieldable contexts, this will be executed async.
 -- @param ip IP address of the target being checked.
 -- @param port the port being checked against.
 -- @param hostname (optional) hostname of the target being checked.
@@ -426,6 +477,8 @@ end
 
 
 --- Clear all healthcheck data.
+--
+-- *NOTE*: in non-yieldable contexts, this will be executed async.
 -- @return `true` on success, or `nil + error` on failure.
 function checker:clear()
 
@@ -488,16 +541,16 @@ local function run_mutexed_fn(premature, self, ip, port, hostname, fn)
     return
   end
 
-  local lock, lock_err = resty_lock:new(self.shm_name, {
+  local tlock, lock_err = resty_lock:new(self.shm_name, {
                   exptime = 10,  -- timeout after which lock is released anyway
                   timeout = 5,   -- max wait time to acquire lock
                 })
-  if not lock then
+  if not tlock then
     return nil, "failed to create lock:" .. lock_err
   end
   local lock_key = key_for(self.TARGET_LOCK, ip, port, hostname)
 
-  local pok, perr = pcall(resty_lock.lock, lock, lock_key)
+  local pok, perr = pcall(tlock.lock, tlock, lock_key)
   if not pok then
     self:log(DEBUG, "failed to acquire lock: ", perr)
     return nil, "failed to acquire lock"
@@ -505,7 +558,7 @@ local function run_mutexed_fn(premature, self, ip, port, hostname, fn)
 
   local final_ok, final_err = pcall(fn)
 
-  local ok, err = lock:unlock()
+  local ok, err = tlock:unlock()
   if not ok then
     -- recoverable: not returning this error, only logging it
     self:log(ERR, "failed to release lock '", lock_key, "': ", err)
@@ -527,7 +580,7 @@ end
 local function locking_target(self, ip, port, hostname, fn)
   local ok, err = run_mutexed_fn(false, self, ip, port, hostname, fn)
   if err == "failed to acquire lock" then
-    local _, terr = ngx.timer.at(0, run_mutexed_fn, self, ip, port, hostname, fn)
+    local _, terr = ngx_timer_at(0, run_mutexed_fn, self, ip, port, hostname, fn)
     if terr ~= nil then
       return nil, terr
     end
@@ -551,6 +604,8 @@ end
 -- Increment the healthy or unhealthy counter. If the threshold of occurrences
 -- is reached, it changes the status of the target in the shm and posts an
 -- event.
+--
+-- *NOTE*: in non-yieldable contexts, this will be executed async.
 -- @param self The checker object
 -- @param health_report "healthy" for the success counter that drives a target
 -- towards the healthy state; "unhealthy" for the failure counter.
@@ -636,6 +691,8 @@ end
 -- If `unhealthy.tcp_failures` (for TCP failures) or `unhealthy.http_failures`
 -- is set to zero in the configuration, this function is a no-op
 -- and returns `true`.
+--
+-- *NOTE*: in non-yieldable contexts, this will be executed async.
 -- @param ip IP address of the target being checked.
 -- @param port the port being checked against.
 -- @param hostname (optional) hostname of the target being checked.
@@ -663,6 +720,8 @@ end
 -- required to make a target "rise".
 -- If `healthy.successes` is set to zero in the configuration,
 -- this function is a no-op and returns `true`.
+--
+-- *NOTE*: in non-yieldable contexts, this will be executed async.
 -- @param ip IP address of the target being checked.
 -- @param port the port being checked against.
 -- @param hostname (optional) hostname of the target being checked.
@@ -684,6 +743,8 @@ end
 -- or `unhealthy.http_failures` (fur unhealthy HTTP status codes)
 -- is set to zero in the configuration, this function is a no-op
 -- and returns `true`.
+--
+-- *NOTE*: in non-yieldable contexts, this will be executed async.
 -- @param ip IP address of the target being checked.
 -- @param port the port being checked against.
 -- @param hostname (optional) hostname of the target being checked.
@@ -717,6 +778,8 @@ end
 --- Report a failure on TCP level.
 -- If `unhealthy.tcp_failures` is set to zero in the configuration,
 -- this function is a no-op and returns `true`.
+--
+-- *NOTE*: in non-yieldable contexts, this will be executed async.
 -- @param ip IP address of the target being checked.
 -- @param port the port being checked against.
 -- @param hostname hostname of the target being checked.
@@ -740,6 +803,8 @@ end
 --- Report a timeout failure.
 -- If `unhealthy.timeouts` is set to zero in the configuration,
 -- this function is a no-op and returns `true`.
+--
+-- *NOTE*: in non-yieldable contexts, this will be executed async.
 -- @param ip IP address of the target being checked.
 -- @param port the port being checked against.
 -- @param hostname (optional) hostname of the target being checked.
@@ -755,6 +820,8 @@ end
 
 
 --- Sets the current status of all targets with the given hostname and port.
+--
+-- *NOTE*: in non-yieldable contexts, this will be executed async.
 -- @param hostname hostname being checked.
 -- @param port the port being checked against
 -- @param is_healthy boolean: `true` for healthy, `false` for unhealthy
@@ -781,7 +848,9 @@ end
 
 
 --- Sets the current status of the target.
--- This will immediately set the status and clear its counters.
+-- This will set the status and clear its counters.
+--
+-- *NOTE*: in non-yieldable contexts, this will be executed async.
 -- @param ip IP address of the target being checked
 -- @param port the port being checked against
 -- @param hostname (optional) hostname of the target being checked.
@@ -871,14 +940,31 @@ function checker:run_single_check(ip, port, hostname, hostheader)
   end
 
   if self.checks.active.type == "https" then
-    local session
-    session, err = sock:sslhandshake(nil, hostname,
+    local https_sni, session, err
+    https_sni = self.checks.active.https_sni or hostheader or hostname
+    if self.ssl_cert and self.ssl_key then
+      session, err = sock:tlshandshake({
+        verify = self.checks.active.https_verify_certificate,
+        client_cert = self.ssl_cert,
+        client_priv_key = self.ssl_key,
+        server_name = https_sni
+      })
+    else
+      session, err = sock:sslhandshake(nil, https_sni,
                                      self.checks.active.https_verify_certificate)
+    end
     if not session then
       sock:close()
-      self:log(ERR, "failed SSL handshake with '", hostname, " (", ip, ":", port, ")': ", err)
+      self:log(ERR, "failed SSL handshake with '", hostname or "", " (", ip, ":", port, ")', using server name (sni) '", https_sni, "': ", err)
       return self:report_tcp_failure(ip, port, hostname, "connect", "active")
     end
+
+  end
+
+  local req_headers = self.checks.active.headers
+  local headers = table.concat(req_headers, "\r\n")
+  if #headers > 0 then
+    headers = headers .. "\r\n"
   end
 
   local req_headers = self.checks.active.req_headers
@@ -894,7 +980,7 @@ function checker:run_single_check(ip, port, hostname, hostheader)
   local bytes
   bytes, err = sock:send(request)
   if not bytes then
-    self:log(ERR, "failed to send http request to '", hostname, " (", ip, ":", port, ")': ", err)
+    self:log(ERR, "failed to send http request to '", hostname or "", " (", ip, ":", port, ")': ", err)
     if err == "timeout" then
       sock:close()  -- timeout errors do not close the socket.
       return self:report_timeout(ip, port, hostname, "active")
@@ -905,7 +991,7 @@ function checker:run_single_check(ip, port, hostname, hostheader)
   local status_line
   status_line, err = sock:receive()
   if not status_line then
-    self:log(ERR, "failed to receive status line from '", hostname, " (",ip, ":", port, ")': ", err)
+    self:log(ERR, "failed to receive status line from '", hostname or "", " (",ip, ":", port, ")': ", err)
     if err == "timeout" then
       sock:close()  -- timeout errors do not close the socket.
       return self:report_timeout(ip, port, hostname, "active")
@@ -920,13 +1006,13 @@ function checker:run_single_check(ip, port, hostname, hostheader)
   if from then
     status = tonumber(status_line:sub(from, to))
   else
-    self:log(ERR, "bad status line from '", hostname, " (", ip, ":", port, ")': ", status_line)
+    self:log(ERR, "bad status line from '", hostname or "", " (", ip, ":", port, ")': ", status_line)
     -- note: 'status' will be reported as 'nil'
   end
 
   sock:close()
 
-  self:log(DEBUG, "Reporting '", hostname, " (", ip, ":", port, ")' (got HTTP ", status, ")")
+  self:log(DEBUG, "Reporting '", hostname or "", " (", ip, ":", port, ")' (got HTTP ", status, ")")
 
   return self:report_http_status(ip, port, hostname, status, "active")
 end
@@ -934,7 +1020,11 @@ end
 -- executes a work package (a list of checks) sequentially
 function checker:run_work_package(work_package)
   for _, work_item in ipairs(work_package) do
-    self:log(DEBUG, "Checking ", work_item.hostname, " ",
+    if ngx_worker_exiting() then
+      self:log(DEBUG, "worker exting, skip check")
+      break
+    end
+    self:log(DEBUG, "Checking ", work_item.hostname or "", " ",
                     work_item.hostheader and "(host header: ".. work_item.hostheader .. ")"
                     or "", work_item.ip, ":", work_item.port,
                     " (currently ", work_item.debug_health, ")")
@@ -983,86 +1073,37 @@ end
 -- results of the checks.
 
 
--- @param health_mode either "healthy" or "unhealthy" to indicate what
--- lock to get.
--- @return `true` on success, or false if the lock was not acquired, or `nil + error`
--- in case of errors
-function checker:get_periodic_lock(health_mode)
-  local key = self.PERIODIC_LOCK .. health_mode
-  local interval = self.checks.active[health_mode].interval
-
-  -- The lock is held for the whole interval to prevent multiple
-  -- worker processes from sending the test request simultaneously.
-  -- UNLESS: the probing takes longer than the timer interval.
-  -- Here we substract the lock expiration time by 1ms to prevent
-  -- a race condition with the next timer event.
-  local ok, err = self.shm:add(key, true, interval - 0.001)
-  if not ok then
-    if err == "exists" then
-      return false
-    end
-    self:log(ERR, "failed to add key '", key, "': ", err)
-    return nil
-  end
-  return true
-end
-
-
 --- Active health check callback function.
--- @param premature default openresty param
 -- @param self the checker object this timer runs on
 -- @param health_mode either "healthy" or "unhealthy" to indicate what check
-local function checker_callback(premature, self, health_mode)
-  if premature or self.stopping then
-    self.timer_count = self.timer_count - 1
-    return
+local function checker_callback(self, health_mode)
+
+  -- create a list of targets to check, here we can still do this atomically
+  local list_to_check = {}
+  local targets = fetch_target_list(self)
+  for _, target in ipairs(targets) do
+    local tgt = get_target(self, target.ip, target.port, target.hostname)
+    local internal_health = tgt and tgt.internal_health or nil
+    if (health_mode == "healthy" and (internal_health == "healthy" or
+                                      internal_health == "mostly_healthy"))
+    or (health_mode == "unhealthy" and (internal_health == "unhealthy" or
+                                        internal_health == "mostly_unhealthy"))
+    then
+      list_to_check[#list_to_check + 1] = {
+        ip = target.ip,
+        port = target.port,
+        hostname = target.hostname,
+        hostheader = target.hostheader,
+        debug_health = internal_health,
+      }
+    end
   end
 
-  local interval
-  if not self:get_periodic_lock(health_mode) then
-    -- another worker just ran, or is running the healthcheck
-    interval = self.checks.active[health_mode].interval
-
+  if not list_to_check[1] then
+    self:log(DEBUG, "checking ", health_mode, " targets: nothing to do")
   else
-    -- we're elected to run the active healthchecks
-    -- create a list of targets to check, here we can still do this atomically
-    local start_time = ngx_now()
-    local list_to_check = {}
-    local targets = fetch_target_list(self)
-    for _, target in ipairs(targets) do
-      local tgt = get_target(self, target.ip, target.port, target.hostname)
-      local internal_health = tgt and tgt.internal_health or nil
-      if (health_mode == "healthy" and (internal_health == "healthy" or
-                                        internal_health == "mostly_healthy"))
-      or (health_mode == "unhealthy" and (internal_health == "unhealthy" or
-                                          internal_health == "mostly_unhealthy"))
-      then
-        list_to_check[#list_to_check + 1] = {
-          ip = target.ip,
-          port = target.port,
-          hostname = target.hostname,
-          hostheader = target.hostheader,
-          debug_health = internal_health,
-        }
-      end
-    end
-
-    if not list_to_check[1] then
-      self:log(DEBUG, "checking ", health_mode, " targets: nothing to do")
-    else
-      self:log(DEBUG, "checking ", health_mode, " targets: #", #list_to_check)
-      self:active_check_targets(list_to_check)
-    end
-
-    local run_time = ngx_now() - start_time
-    interval = math.max(0, self.checks.active[health_mode].interval - run_time)
-  end
-
-  -- reschedule timer
-  local ok, err = utils.gctimer(interval, checker_callback, self, health_mode)
-  if not ok then
-    self.timer_count = self.timer_count - 1
-    self:log(ERR, "failed to re-create '", health_mode, "' timer: ", err)
+    self:log(DEBUG, "checking ", health_mode, " targets: #", #list_to_check)
+    self:active_check_targets(list_to_check)
   end
 end
 
@@ -1074,7 +1115,7 @@ function checker:event_handler(event_name, ip, port, hostname)
   if event_name == self.events.remove then
     if target_found then
       -- remove hash part
-      self.targets[target_found.ip][target_found.port][target_found.hostname] = nil
+      self.targets[target_found.ip][target_found.port][target_found.hostname or target_found.ip] = nil
       if not next(self.targets[target_found.ip][target_found.port]) then
         -- no more hostnames on this port, so delete it
         self.targets[target_found.ip][target_found.port] = nil
@@ -1107,9 +1148,9 @@ function checker:event_handler(event_name, ip, port, hostname)
     if not target_found then
       -- it is a new target, must add it first
       target_found = { ip = ip, port = port, hostname = hostname }
-      self.targets[target_found.ip] = self.targets[target_found.ip] or {}
-      self.targets[target_found.ip][target_found.port] = self.targets[target_found.ip][target_found.port] or {}
-      self.targets[target_found.ip][target_found.port][target_found.hostname or ip] = target_found
+      self.targets[ip] = self.targets[ip] or {}
+      self.targets[ip][port] = self.targets[ip][port] or {}
+      self.targets[ip][port][hostname or ip] = target_found
       self.targets[#self.targets + 1] = target_found
       self:log(DEBUG, "event: target added '", hostname or "", "(", ip, ":", port, ")'")
     end
@@ -1147,14 +1188,17 @@ end
 -- Log a message specific to this checker
 -- @param level standard ngx log level constant
 function checker:log(level, ...)
-  ngx_log(level, worker_color(self.LOG_PREFIX), ...)
+  return ngx_log(level, self.LOG_PREFIX, ...)
 end
 
 
 -- Raises an event for a target status change.
 function checker:raise_event(event_name, ip, port, hostname)
   local target = { ip = ip, port = port, hostname = hostname }
-  worker_events.post(self.EVENT_SOURCE, event_name, target)
+  local ok, err = worker_events.post(self.EVENT_SOURCE, event_name, target)
+  if not ok then
+    self:log(ERR, "failed to post event '", event_name, "' with: ", err)
+  end
 end
 
 
@@ -1163,7 +1207,14 @@ end
 -- after the current timers have expired they will be marked as stopped.
 -- @return `true`
 function checker:stop()
-  self.stopping = true
+  if self.active_healthy_timer then
+    self.active_healthy_timer:cancel()
+    self.active_healthy_timer = nil
+  end
+  if self.active_unhealthy_timer then
+    self.active_unhealthy_timer:cancel()
+    self.active_unhealthy_timer = nil
+  end
   self:log(DEBUG, "timers stopped")
   return true
 end
@@ -1172,31 +1223,33 @@ end
 --- Start the background health checks.
 -- @return `true`, or `nil + error`.
 function checker:start()
-  if self.timer_count ~= 0 then
-    return nil, "cannot start, " .. self.timer_count .. " (of 2) timers are still running"
+  if self.active_healthy_timer or self.active_unhealthy_timer then
+    return nil, "cannot start, timers are still running"
   end
 
-  local ok, err
-  if self.checks.active.healthy.interval > 0 then
-    ok, err = utils.gctimer(0, checker_callback, self, "healthy")
-    if not ok then
-      return nil, "failed to create 'healthy' timer: " .. err
+  for _, health_mode in ipairs({ "healthy", "unhealthy" }) do
+    if self.checks.active[health_mode].interval > 0 then
+      local timer, err = resty_timer({
+        interval = self.checks.active[health_mode].interval,
+        recurring = true,
+        immediate = true,
+        detached = false,
+        expire = checker_callback,
+        cancel = nil,
+        shm_name = self.shm_name,
+        key_name = self.PERIODIC_LOCK .. health_mode,
+        sub_interval = math.min(self.checks.active[health_mode].interval, 0.5),
+      }, self, health_mode)
+      if not timer then
+        return nil, "failed to create '" .. health_mode .. "' timer: " .. err
+      end
+      self["active_" .. health_mode .. "_timer"] = timer
     end
-    self.timer_count = self.timer_count + 1
-  end
-
-  if self.checks.active.unhealthy.interval > 0 then
-    ok, err = utils.gctimer(0, checker_callback, self, "unhealthy")
-    if not ok then
-      return nil, "failed to create 'unhealthy' timer: " .. err
-    end
-    self.timer_count = self.timer_count + 1
   end
 
   worker_events.unregister(self.ev_callback, self.EVENT_SOURCE)  -- ensure we never double subscribe
   worker_events.register_weak(self.ev_callback, self.EVENT_SOURCE)
 
-  self.stopping = false  -- do this at the end, so if either creation fails, the other stops also
   self:log(DEBUG, "timers started")
   return true
 end
@@ -1265,7 +1318,9 @@ local defaults = {
       timeout = 1,
       concurrency = 10,
       http_path = "/",
+      https_sni = NO_DEFAULT,
       https_verify_certificate = true,
+      headers = {""},
       healthy = {
         interval = 0, -- 0 = disabled by default
         http_statuses = { 200, 302 },
@@ -1327,15 +1382,22 @@ end
 --
 -- *NOTE*: the returned `checker` object must be anchored, if not it will be
 -- removed by Lua's garbage collector and the healthchecks will cease to run.
+--
+-- *NOTE*: in non-yieldable contexts, the initial loading of the target
+-- statusses will be executed async.
 -- @param opts table with checker options. Options are:
 --
 -- * `name`: name of the health checker
 -- * `shm_name`: the name of the `lua_shared_dict` specified in the Nginx configuration to use
+-- * `ssl_cert`: certificate for mTLS connections (string or parsed object)
+-- * `ssl_key`: key for mTLS connections (string or parsed object)
 -- * `checks.active.type`: "http", "https" or "tcp" (default is "http")
 -- * `checks.active.timeout`: socket timeout for active checks (in seconds)
 -- * `checks.active.concurrency`: number of targets to check concurrently
 -- * `checks.active.http_path`: path to use in `GET` HTTP request to run on active checks
+-- * `checks.active.https_sni`: SNI server name incase of HTTPS
 -- * `checks.active.https_verify_certificate`: boolean indicating whether to verify the HTTPS certificate
+-- * `checks.active.hheaders`: an array of headers (no hash-table! must be pre-formatted)
 -- * `checks.active.healthy.interval`: interval between checks for healthy targets (in seconds)
 -- * `checks.active.healthy.http_statuses`: which HTTP statuses to consider a success
 -- * `checks.active.healthy.successes`: number of successes to consider a target healthy
@@ -1362,18 +1424,7 @@ function _M.new(opts)
   assert(worker_events.configured(), "please configure the " ..
       "'lua-resty-worker-events' module before using 'lua-resty-healthcheck'")
 
-  local active_type = (((opts or EMPTY).checks or EMPTY).active or EMPTY).type
-  local passive_type = (((opts or EMPTY).checks or EMPTY).passive or EMPTY).type
-
   local self = fill_in_settings(opts, defaults)
-
-  -- If using deprecated self.type, that takes precedence over
-  -- a default value. TODO: remove this in a future version
-  if self.type then
-    self.checks.active.type = active_type or self.type
-    self.checks.passive.type = passive_type or self.type
-    check_valid_type("type", self.type)
-  end
 
   assert(self.checks.active.healthy.successes < 255,        "checks.active.healthy.successes must be at most 254")
   assert(self.checks.active.unhealthy.tcp_failures < 255,   "checks.active.unhealthy.tcp_failures must be at most 254")
@@ -1383,6 +1434,22 @@ function _M.new(opts)
   assert(self.checks.passive.unhealthy.tcp_failures < 255,  "checks.passive.unhealthy.tcp_failures must be at most 254")
   assert(self.checks.passive.unhealthy.http_failures < 255, "checks.passive.unhealthy.http_failures must be at most 254")
   assert(self.checks.passive.unhealthy.timeouts < 255,      "checks.passive.unhealthy.timeouts must be at most 254")
+
+  -- since counter types are independent (tcp failure does not also increment http failure)
+  -- a TCP threshold of 0 is not allowed for enabled http checks.
+  -- It would make tcp failures go unnoticed because the http failure counter is not
+  -- incremented and a tcp threshold of 0 means disabled, and hence it would never trip.
+  -- See https://github.com/Kong/lua-resty-healthcheck/issues/30
+  if self.checks.passive.type == "http" or self.checks.passive.type == "https" then
+    if self.checks.passive.unhealthy.http_failures > 0 then
+      assert(self.checks.passive.unhealthy.tcp_failures > 0, "self.checks.passive.unhealthy.tcp_failures must be >0 for http(s) checks with http_failures >0")
+    end
+  end
+  if self.checks.active.type == "http" or self.checks.active.type == "https" then
+    if self.checks.active.unhealthy.http_failures > 0 then
+      assert(self.checks.active.unhealthy.tcp_failures > 0, "self.checks.active.unhealthy.tcp_failures must be > 0 for http(s) checks with http_failures >0")
+    end
+  end
 
   if opts.test then
     self.test_get_counter = test_get_counter
@@ -1397,11 +1464,25 @@ function _M.new(opts)
   self.shm = ngx.shared[tostring(opts.shm_name)]
   assert(self.shm, ("no shm found by name '%s'"):format(opts.shm_name))
 
+  -- load certificate and key
+  if opts.ssl_cert and opts.ssl_key then
+    if type(opts.ssl_cert) == "cdata" then
+      self.ssl_cert = opts.ssl_cert
+    else
+      self.ssl_cert = assert(ssl.parse_pem_cert(opts.ssl_cert))
+    end
+
+    if type(opts.ssl_key) == "cdata" then
+      self.ssl_key = opts.ssl_key
+    else
+      self.ssl_key = assert(ssl.parse_pem_priv_key(opts.ssl_key))
+    end
+
+  end
+
   -- other properties
-  self.targets = nil     -- list of targets, initially loaded, maintained by events
+  self.targets = {}     -- list of targets, initially loaded, maintained by events
   self.events = nil      -- hash table with supported events (prevent magic strings)
-  self.stopping = true   -- flag to indicate to timers to stop checking
-  self.timer_count = 0   -- number of running timers
   self.ev_callback = nil -- callback closure per checker instance
 
   -- Convert status lists to sets
@@ -1425,7 +1506,7 @@ function _M.new(opts)
   self.PERIODIC_LOCK    = SHM_PREFIX .. self.name .. ":period_lock:"
   -- prepare constants
   self.EVENT_SOURCE     = EVENT_SOURCE_PREFIX .. " [" .. self.name .. "]"
-  self.LOG_PREFIX       = LOG_PREFIX .. "(" .. self.name .. ") "
+  self.LOG_PREFIX       = worker_color(LOG_PREFIX .. "(" .. self.name .. ") ")
 
   -- register for events, and directly after load initial target list
   -- order is important!
@@ -1463,7 +1544,7 @@ function _M.new(opts)
     worker_events.register_weak(self.ev_callback, self.EVENT_SOURCE)
 
     -- handle events to sync up in case there was a change by another worker
-    worker_events:poll()
+    worker_events.poll()
   end
 
   -- start timers
