@@ -1,10 +1,9 @@
-package = "lua-resty-healthcheck-api7-master"
-version = "0-0"
+package = "lua-resty-healthcheck"
+version = "1.3.0-2"
 source = {
-   url = "git://github.com/api7/lua-resty-healthcheck",
-   branch = "master",
+   url = "https://github.com/Kong/lua-resty-healthcheck/archive/1.3.0.tar.gz",
+   dir = "lua-resty-healthcheck-1.3.0"
 }
-
 description = {
    summary = "Healthchecks for OpenResty to check upstream service status",
    detailed = [[
@@ -12,18 +11,17 @@ description = {
       availability by sending requests and validating responses at timed
       intervals.
    ]],
-   homepage = "https://github.com/api7/lua-resty-healthcheck",
+   homepage = "https://github.com/Kong/lua-resty-healthcheck",
    license = "Apache 2.0"
 }
-
 dependencies = {
-   "lua-resty-worker-events = 1.0.0",
-   "penlight ~> 1.7",
-   "lua-resty-timer ~> 1"
+   "lua-resty-worker-events  >= 0.3.2, < 2.0",
+   "penlight >= 1.7.0",
 }
 build = {
    type = "builtin",
    modules = {
       ["resty.healthcheck"] = "lib/resty/healthcheck.lua",
+      ["resty.healthcheck.utils"] = "lib/resty/healthcheck/utils.lua"
    }
 }

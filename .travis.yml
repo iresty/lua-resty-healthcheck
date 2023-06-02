@@ -1,6 +1,4 @@
 
-sudo: required
-
 language: c
 
 compiler: gcc
@@ -18,9 +16,10 @@ env:
     - JOBS=2
     - LUAROCKS_VER=2.4.3
   matrix:
-    - OPENRESTY_VER=1.11.2.2
-    - OPENRESTY_VER=1.11.2.4
-    - OPENRESTY_VER=1.15.8.1
+    - OPENRESTY_VER=1.11.2.5
+    - OPENRESTY_VER=1.13.6.2
+    - OPENRESTY_VER=1.15.8.3
+    - OPENRESTY_VER=1.17.8.2
 #   - LINT=1
 
 install:
@@ -50,7 +49,7 @@ install:
   - popd
   - export PATH=$OPENRESTY_PREFIX/nginx/sbin:$LUAROCKS_PREFIX/bin:$PATH
   - sudo luarocks install luacheck > build.log 2>&1 || (cat build.log && exit 1)
-  - sudo luarocks install lua-resty-worker-events > build.log 2>&1 || (cat build.log && exit 1)
+  - sudo luarocks make
   - luarocks --version
   - nginx -V
 
