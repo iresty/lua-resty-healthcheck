@@ -1599,7 +1599,7 @@ function _M.get_target_list(name, shm_name)
   end)
 
   for _, target in ipairs(self.targets) do
-    local ok = run_mutexed_fn(false, self, ip, port, hostname, function()
+    local ok = run_mutexed_fn(false, self, target.ip, target.port, target.hostname, function()
       local counter = self.shm:get(key_for(self.TARGET_COUNTER,
         target.ip, target.port, target.hostname))
       target.counter = {
@@ -1608,6 +1608,7 @@ function _M.get_target_list(name, shm_name)
         tcp_failure = ctr_get(counter, CTR_TCP),
         timeout_failure = ctr_get(counter, CTR_TIMEOUT),
       }
+      return true
     end)
 
     if not ok then
