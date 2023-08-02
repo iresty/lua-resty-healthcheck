@@ -268,7 +268,6 @@ end
 --- Helper function to run the function holding a lock on the target list.
 -- @see locking_target_list
 local function run_fn_locked_target_list(premature, self, fn)
-
   if premature then
     return
   end
@@ -282,31 +281,36 @@ local function run_fn_locked_target_list(premature, self, fn)
     return nil, "failed to create lock:" .. lock_err
   end
 
-  local pok, perr = pcall(tl_lock.lock, tl_lock, self.TARGET_LIST_LOCK)
-  if not pok then
-    self:log(DEBUG, "failed to acquire lock: ", perr)
-    return nil, "failed to acquire lock"
+  local elapsed, err = tl_lock:lock(self.TARGET_LIST_LOCK)
+  if not elapsed then
+    local err_msg = "failed to acquire lock for '" .. self.TARGET_LIST_LOCK .. "': " .. err
+    self:log(DEBUG, err_msg)
+    return nil, err_msg
   end
+
+  local final_res, final_err
 
   local target_list, err = fetch_target_list(self)
+  if not target_list then
+    final_res, final_err = nil, err
 
-  local final_ok, final_err
-
-  if target_list then
-    final_ok, final_err = pcall(fn, target_list)
   else
-    final_ok, final_err = nil, err
+    local status, retval1_or_errmsg, retval2 = pcall(fn, target_list)
+    if not status then
+      final_res, final_err = nil, retval1_or_errmsg
+    else
+      final_res, final_err = retval1_or_errmsg, retval2
+    end
   end
 
-  local ok
-  ok, err = tl_lock:unlock()
+  local ok, err = tl_lock:unlock()
   if not ok then
     -- recoverable: not returning this error, only logging it
     self:log(ERR, "failed to release lock '", self.TARGET_LIST_LOCK,
         "': ", err)
   end
 
-  return final_ok, final_err
+  return final_res, final_err
 end
 
 
