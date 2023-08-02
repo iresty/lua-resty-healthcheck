@@ -554,7 +554,6 @@ local function run_mutexed_fn(premature, self, ip, port, hostname, fn)
   end
 
   local lock_key = key_for(self.TARGET_LOCK, ip, port, hostname)
-
   local elapsed, err = tlock:lock(lock_key)
   if not elapsed then
     local err_msg = "failed to acquire lock for '" .. lock_key .. "': " .. err
