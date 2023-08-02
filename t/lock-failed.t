@@ -32,21 +32,20 @@ qq{
 --- config
     location = /t {
         content_by_lua_block {
+            -- add a lock manually
             local resty_lock = require ("resty.lock")
-
             local shm_name = "test_shm"
             local name = "testing"
             local key = "lua-resty-healthcheck:" .. name ..  ":target_list_lock"
-
             local tl_lock, lock_err = resty_lock:new(shm_name, {
                 exptime = 10,  -- timeout after which lock is released anyway
                 timeout = 5,   -- max wait time to acquire lock
             })
             assert(tl_lock, "new lock failed")
-
             local elapsed, err = tl_lock:lock(key)
             assert(elapsed, "lock failed")
 
+            -- acquire a lock in the new function
             local we = require "resty.worker.events"
             assert(we.configure{ shm = "my_worker_events", interval = 0.1 })
             local healthcheck = require("resty.healthcheck")
