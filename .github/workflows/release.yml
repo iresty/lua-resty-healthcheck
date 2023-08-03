@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     branches:
-      - "master"
+      - "release/2.2"
     paths:
       - 'rockspecs/**'
 
