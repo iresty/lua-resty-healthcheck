@@ -492,31 +492,38 @@ local function run_mutexed_fn(premature, self, ip, port, hostname, fn)
     return
   end
 
-  local lock, lock_err = resty_lock:new(self.shm_name, {
+  local tlock, lock_err = resty_lock:new(self.shm_name, {
                   exptime = 10,  -- timeout after which lock is released anyway
                   timeout = 5,   -- max wait time to acquire lock
                 })
-  if not lock then
+  if not tlock then
     return nil, "failed to create lock:" .. lock_err
   end
-  local lock_key = key_for(self.TARGET_LOCK, ip, port, hostname)
 
-  local pok, perr = pcall(resty_lock.lock, lock, lock_key)
-  if not pok then
-    self:log(DEBUG, "failed to acquire lock: ", perr)
-    return nil, "failed to acquire lock"
+  local lock_key = key_for(self.TARGET_LOCK, ip, port, hostname)
+  local elapsed, err = tlock:lock(lock_key)
+  if not elapsed then
+    local err_msg = "failed to acquire lock for '" .. lock_key .. "': " .. err
+    self:log(DEBUG, err_msg)
+    return nil, err_msg
   end
 
-  local final_ok, final_err = pcall(fn)
+  local final_res, final_err
 
-  local ok, err = lock:unlock()
+  local status, retval1_or_errmsg, retval2 = pcall(fn)
+  if not status then
+    final_res, final_err = nil, retval1_or_errmsg
+  else
+    final_res, final_err = retval1_or_errmsg, retval2
+  end
+
+  local ok, err = tlock:unlock()
   if not ok then
     -- recoverable: not returning this error, only logging it
     self:log(ERR, "failed to release lock '", lock_key, "': ", err)
   end
 
-  return final_ok, final_err
-
+  return final_res, final_err
 end
 
 
