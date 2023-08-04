@@ -6,11 +6,32 @@ workers(1);
 plan tests => repeat_each() * (blocks() * 3) + 1;
 
 my $pwd = cwd();
+$ENV{TEST_NGINX_SERVROOT} = server_root();
 
 our $HttpConfig = qq{
     lua_package_path "$pwd/lib/?.lua;;";
     lua_shared_dict test_shm 8m;
-    lua_shared_dict my_worker_events 8m;
+
+    init_worker_by_lua_block {
+        local we = require "resty.events.compat"
+        assert(we.configure({
+            unique_timeout = 5,
+            broker_id = 0,
+            listening = "unix:$ENV{TEST_NGINX_SERVROOT}/worker_events.sock"
+        }))
+        assert(we.configured())
+    }
+
+    server {
+        server_name my_worker_events;
+        listen unix:$ENV{TEST_NGINX_SERVROOT}/worker_events.sock;
+        access_log off;
+        location / {
+            content_by_lua_block {
+                require("resty.events.compat").run()
+            }
+        }
+    }
 };
 
 run_tests();
@@ -22,8 +43,6 @@ __DATA__
 --- config
     location = /t {
         content_by_lua_block {
-            local we = require "resty.worker.events"
-            assert(we.configure{ shm = "my_worker_events", interval = 0.1 })
             local healthcheck = require("resty.healthcheck")
             local checker = healthcheck.new({
                 name = "testing",
@@ -62,8 +81,6 @@ true
 --- config
     location = /t {
         content_by_lua_block {
-            local we = require "resty.worker.events"
-            assert(we.configure{ shm = "my_worker_events", interval = 0.1 })
             local healthcheck = require("resty.healthcheck")
             local checker = healthcheck.new({
                 name = "testing",
@@ -95,8 +112,6 @@ cannot start, timers are still running
 --- config
     location = /t {
         content_by_lua_block {
-            local we = require "resty.worker.events"
-            assert(we.configure{ shm = "my_worker_events", interval = 0.1 })
             local healthcheck = require("resty.healthcheck")
             local checker = healthcheck.new({
                 name = "testing",
@@ -139,8 +154,6 @@ true
 --- config
     location = /t {
         content_by_lua_block {
-            local we = require "resty.worker.events"
-            assert(we.configure{ shm = "my_worker_events", interval = 0.1 })
             local healthcheck = require("resty.healthcheck")
             local checker = healthcheck.new({
                 name = "testing",
@@ -179,8 +192,6 @@ checking
 --- config
     location = /t {
         content_by_lua_block {
-            local we = require "resty.worker.events"
-            assert(we.configure{ shm = "my_worker_events", interval = 0.1 })
             local healthcheck = require("resty.healthcheck")
             local checker = healthcheck.new({
                 name = "testing",
@@ -198,7 +209,7 @@ checking
             })
             local ok, err = checker:stop()
             ngx.say(ok)
-            ngx.sleep(0.2) -- wait twice the interval
+            ngx.sleep(1) -- active healthchecks might take up to 1s to start
             ngx.say(
                 (checker.active_healthy_timer and 1 or 0) +
                 (checker.active_unhealthy_timer and 1 or 0)

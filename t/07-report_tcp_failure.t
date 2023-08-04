@@ -6,11 +6,32 @@ workers(1);
 plan tests => repeat_each() * 24;
 
 my $pwd = cwd();
+$ENV{TEST_NGINX_SERVROOT} = server_root();
 
 our $HttpConfig = qq{
     lua_package_path "$pwd/lib/?.lua;;";
     lua_shared_dict test_shm 8m;
-    lua_shared_dict my_worker_events 8m;
+
+    init_worker_by_lua_block {
+        local we = require "resty.events.compat"
+        assert(we.configure({
+            unique_timeout = 5,
+            broker_id = 0,
+            listening = "unix:$ENV{TEST_NGINX_SERVROOT}/worker_events.sock"
+        }))
+        assert(we.configured())
+    }
+
+    server {
+        server_name my_worker_events;
+        listen unix:$ENV{TEST_NGINX_SERVROOT}/worker_events.sock;
+        access_log off;
+        location / {
+            content_by_lua_block {
+                require("resty.events.compat").run()
+            }
+        }
+    }
 };
 
 run_tests();
@@ -34,8 +55,6 @@ qq{
 --- config
     location = /t {
         content_by_lua_block {
-            local we = require "resty.worker.events"
-            assert(we.configure{ shm = "my_worker_events", interval = 0.1 })
             local healthcheck = require("resty.healthcheck")
             local checker = healthcheck.new({
                 name = "testing",
@@ -65,17 +84,16 @@ qq{
                     }
                 }
             })
-            ngx.sleep(0.1) -- wait for initial timers to run once
             local ok, err = checker:add_target("127.0.0.1", 2120, nil, true)
             local ok, err = checker:add_target("127.0.0.1", 2113, nil, true)
-            we.poll()
+            ngx.sleep(0.01)
             checker:report_tcp_failure("127.0.0.1", 2120, nil, nil, "active")
             checker:report_tcp_failure("127.0.0.1", 2113, nil, nil, "passive")
             checker:report_tcp_failure("127.0.0.1", 2120, nil, nil, "active")
             checker:report_tcp_failure("127.0.0.1", 2113, nil, nil, "passive")
             checker:report_tcp_failure("127.0.0.1", 2120, nil, nil, "active")
             checker:report_tcp_failure("127.0.0.1", 2113, nil, nil, "passive")
-            we.poll()
+            ngx.sleep(0.01)
             ngx.say(checker:get_target_status("127.0.0.1", 2120))  -- false
             ngx.say(checker:get_target_status("127.0.0.1", 2113))  -- false
         }
@@ -113,8 +131,6 @@ qq{
 --- config
     location = /t {
         content_by_lua_block {
-            local we = require "resty.worker.events"
-            assert(we.configure{ shm = "my_worker_events", interval = 0.1 })
             local healthcheck = require("resty.healthcheck")
             local checker = healthcheck.new({
                 name = "testing",
@@ -144,13 +160,12 @@ qq{
                     }
                 }
             })
-            ngx.sleep(0.1) -- wait for initial timers to run once
             local ok, err = checker:add_target("127.0.0.1", 2120, nil, true)
-            we.poll()
+            ngx.sleep(0.01)
             checker:report_tcp_failure("127.0.0.1", 2120, nil, nil, "active")
             checker:report_tcp_failure("127.0.0.1", 2120, nil, nil, "active")
             checker:report_tcp_failure("127.0.0.1", 2120, nil, nil, "active")
-            we.poll()
+            ngx.sleep(0.01)
             ngx.say(checker:get_target_status("127.0.0.1", 2120))  -- true
         }
     }
@@ -182,8 +197,6 @@ qq{
 --- config
     location = /t {
         content_by_lua_block {
-            local we = require "resty.worker.events"
-            assert(we.configure{ shm = "my_worker_events", interval = 0.1 })
             local healthcheck = require("resty.healthcheck")
             local checker = healthcheck.new({
                 name = "testing",
@@ -213,13 +226,12 @@ qq{
                     }
                 }
             })
-            ngx.sleep(0.1) -- wait for initial timers to run once
             local ok, err = checker:add_target("127.0.0.1", 2120, nil, true)
-            we.poll()
+            ngx.sleep(0.01)
             checker:report_tcp_failure("127.0.0.1", 2120, nil, nil, "passive")
             checker:report_tcp_failure("127.0.0.1", 2120, nil, nil, "passive")
             checker:report_tcp_failure("127.0.0.1", 2120, nil, nil, "passive")
-            we.poll()
+            ngx.sleep(0.01)
             ngx.say(checker:get_target_status("127.0.0.1", 2120))  -- true
         }
     }

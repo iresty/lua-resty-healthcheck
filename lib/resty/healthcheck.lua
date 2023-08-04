@@ -34,7 +34,7 @@ require("table.nkeys")
 local cjson = require("cjson.safe").new()
 local table_remove = table.remove
 local resty_timer = require("resty.timer")
-local worker_events = require("resty.worker.events")
+local worker_events = require("resty.events.compat")
 local resty_lock = require ("resty.lock")
 local re_find = ngx.re.find
 local bit = require("bit")
@@ -183,19 +183,20 @@ end
 
 local _M = {}
 
-
--- TODO: improve serialization speed
--- serialize a table to a string
-local function serialize(t)
-  return cjson.encode(t)
+local codec
+do
+  local ok
+  ok, codec = pcall(require, "string.buffer")
+  if not ok then
+    codec = require("cjson.safe").new()
+  end
 end
 
+-- serialize a table to a string
+local serialize = codec.encode
 
 -- deserialize a string to a table
-local function deserialize(s)
-  return cjson.decode(s)
-end
-
+local deserialize = codec.decode
 
 local function key_for(key_prefix, ip, port, hostname)
   return string.format("%s:%s:%s%s", key_prefix, ip, port, hostname and ":" .. hostname or "")
@@ -1420,7 +1421,7 @@ end
 --
 -- @return checker object, or `nil + error`
 function _M.new(opts)
-
+  opts = opts or {}
   assert(worker_events.configured(), "please configure the " ..
       "'lua-resty-worker-events' module before using 'lua-resty-healthcheck'")
 
