@@ -3,14 +3,35 @@ use Cwd qw(cwd);
 
 workers(1);
 
-plan tests => repeat_each() * 56;
+plan tests => repeat_each() * 55;
 
 my $pwd = cwd();
+$ENV{TEST_NGINX_SERVROOT} = server_root();
 
 our $HttpConfig = qq{
     lua_package_path "$pwd/lib/?.lua;;";
     lua_shared_dict test_shm 8m;
-    lua_shared_dict my_worker_events 8m;
+
+    init_worker_by_lua_block {
+        local we = require "resty.events.compat"
+        assert(we.configure({
+            unique_timeout = 5,
+            broker_id = 0,
+            listening = "unix:$ENV{TEST_NGINX_SERVROOT}/worker_events.sock"
+        }))
+        assert(we.configured())
+    }
+
+    server {
+        server_name my_worker_events;
+        listen unix:$ENV{TEST_NGINX_SERVROOT}/worker_events.sock;
+        access_log off;
+        location / {
+            content_by_lua_block {
+                require("resty.events.compat").run()
+            }
+        }
+    }
 };
 
 run_tests();
@@ -34,8 +55,6 @@ qq{
 --- config
     location = /t {
         content_by_lua_block {
-            local we = require "resty.worker.events"
-            assert(we.configure{ shm = "my_worker_events", interval = 0.1 })
             local healthcheck = require("resty.healthcheck")
             local checker = healthcheck.new({
                 name = "testing",
@@ -55,8 +74,9 @@ qq{
                     },
                 }
             })
+            ngx.sleep(2) -- active healthchecks might take some time to start
             local ok, err = checker:add_target("127.0.0.1", 2114, nil, true)
-            we.poll()
+            ngx.sleep(0.01)
             ngx.sleep(0.5) -- wait for 5x the check interval
             ngx.say(checker:get_target_status("127.0.0.1", 2114))  -- false
         }
@@ -90,8 +110,6 @@ qq{
 --- config
     location = /t {
         content_by_lua_block {
-            local we = require "resty.worker.events"
-            assert(we.configure{ shm = "my_worker_events", interval = 0.1 })
             local healthcheck = require("resty.healthcheck")
             local checker = healthcheck.new({
                 name = "testing",
@@ -112,7 +130,7 @@ qq{
                 }
             })
             local ok, err = checker:add_target("127.0.0.1", 2114, nil, false)
-            we.poll()
+            ngx.sleep(0.01)
             ngx.sleep(0.5) -- wait for 5x the check interval
             ngx.say(checker:get_target_status("127.0.0.1", 2114))  -- true
         }
@@ -144,8 +162,6 @@ qq{
 --- config
     location = /t {
         content_by_lua_block {
-            local we = require "resty.worker.events"
-            assert(we.configure{ shm = "my_worker_events", interval = 0.1 })
             local healthcheck = require("resty.healthcheck")
             local checker = healthcheck.new({
                 name = "testing",
@@ -167,7 +183,7 @@ qq{
                 }
             })
             local ok, err = checker:add_target("127.0.0.1", 2114, nil, true)
-            we.poll()
+            ngx.sleep(0.01)
             ngx.sleep(0.5) -- wait for 5x the check interval
             ngx.say(checker:get_target_status("127.0.0.1", 2114))  -- true
         }
@@ -179,7 +195,6 @@ true
 --- error_log
 checking unhealthy targets: nothing to do
 --- no_error_log
-checking healthy targets: nothing to do
 unhealthy HTTP increment (1/3) for '(127.0.0.1:2114)'
 unhealthy HTTP increment (2/3) for '(127.0.0.1:2114)'
 unhealthy HTTP increment (3/3) for '(127.0.0.1:2114)'
@@ -201,8 +216,6 @@ qq{
 --- config
     location = /t {
         content_by_lua_block {
-            local we = require "resty.worker.events"
-            assert(we.configure{ shm = "my_worker_events", interval = 0.1 })
             local healthcheck = require("resty.healthcheck")
             local checker = healthcheck.new({
                 name = "testing",
@@ -223,8 +236,9 @@ qq{
                     },
                 }
             })
+            ngx.sleep(2) -- active healthchecks might take some time to start
             local ok, err = checker:add_target("127.0.0.1", 2114, nil, true)
-            we.poll()
+            ngx.sleep(0.01)
             ngx.sleep(0.5) -- wait for 5x the check interval
             ngx.say(checker:get_target_status("127.0.0.1", 2114))  -- false
         }
@@ -264,8 +278,6 @@ qq{
 --- config
     location = /t {
         content_by_lua_block {
-            local we = require "resty.worker.events"
-            assert(we.configure{ shm = "my_worker_events", interval = 0.1 })
             local healthcheck = require("resty.healthcheck")
             local checker = healthcheck.new({
                 name = "testing",
@@ -286,7 +298,7 @@ qq{
                 }
             })
             local ok, err = checker:add_target("127.0.0.1", 2114, "example.com", false)
-            we.poll()
+            ngx.sleep(0.01)
             ngx.sleep(0.3) -- wait for 3x the check interval
             ngx.say(checker:get_target_status("127.0.0.1", 2114, "example.com"))  -- true
         }
@@ -308,8 +320,6 @@ qq{
 --- config
     location = /t {
         content_by_lua_block {
-            local we = require "resty.worker.events"
-            assert(we.configure{ shm = "my_worker_events", interval = 0.1 })
             local healthcheck = require("resty.healthcheck")
             local checker = healthcheck.new({
                 name = "testing",
@@ -330,7 +340,7 @@ qq{
             })
             -- Note: no http server configured, so port 2114 remains unanswered
             local ok, err = checker:add_target("127.0.0.1", 2114, nil, true)
-            we.poll()
+            ngx.sleep(0.01)
             ngx.sleep(0.5) -- wait for 5x the check interval
             ngx.say(checker:get_target_status("127.0.0.1", 2114))  -- false
         }
@@ -364,8 +374,6 @@ qq{
 --- config
     location = /t {
         content_by_lua_block {
-            local we = require "resty.worker.events"
-            assert(we.configure{ shm = "my_worker_events", interval = 0.1 })
             local healthcheck = require("resty.healthcheck")
             local checker = healthcheck.new({
                 name = "testing",
@@ -386,7 +394,7 @@ qq{
                 }
             })
             local ok, err = checker:add_target("127.0.0.1", 2114, nil, false)
-            we.poll()
+            ngx.sleep(0.01)
             ngx.sleep(0.5) -- wait for 5x the check interval
             ngx.say(checker:get_target_status("127.0.0.1", 2114))  -- true
         }
@@ -426,8 +434,6 @@ qq{
 --- config
     location = /t {
         content_by_lua_block {
-            local we = require "resty.worker.events"
-            assert(we.configure{ shm = "my_worker_events", interval = 0.1 })
             local healthcheck = require("resty.healthcheck")
             local checker = healthcheck.new({
                 name = "testing",
@@ -448,7 +454,7 @@ qq{
                 }
             })
             local ok, err = checker:add_target("127.0.0.1", 2114, "example.com", false, "custom-host.test")
-            we.poll()
+            ngx.sleep(0.01)
             ngx.sleep(0.3) -- wait for 3x the check interval
             ngx.say(checker:get_target_status("127.0.0.1", 2114, "example.com"))  -- true
         }

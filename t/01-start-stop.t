@@ -209,7 +209,6 @@ checking
             })
             local ok, err = checker:stop()
             ngx.say(ok)
-            ngx.sleep(1) -- active healthchecks might take up to 1s to start
             ngx.say(
                 (checker.active_healthy_timer and 1 or 0) +
                 (checker.active_unhealthy_timer and 1 or 0)
