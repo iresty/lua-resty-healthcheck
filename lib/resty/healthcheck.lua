@@ -1255,6 +1255,11 @@ function checker:start()
   return true
 end
 
+--- Clean unregisters all event callbacks. This should be called before un-reference or destroy the checker instance
+function checker:clean()
+  worker_events.unregister(self.ev_callback, self.EVENT_SOURCE)
+end
+
 
 --============================================================================
 -- Create health-checkers
