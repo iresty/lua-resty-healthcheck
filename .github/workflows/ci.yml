@@ -9,19 +9,25 @@ on:
 jobs:
   build:
     runs-on: "ubuntu-latest"
+
+    strategy:
+      matrix:
+        include:
+          - openresty: "1.21.4.1rc2"
     env:
       OPENRESTY_PREFIX: "/usr/local/openresty"
+      OPENRESTY: ${{ matrix.openresty }}
 
     steps:
       - name: Check out code
         uses: actions/checkout@v2
 
       - name: Linux Get dependencies
-        run: sudo apt install -y cpanminus build-essential libncurses5-dev libreadline-dev libssl-dev perl luarocks
+        run: sudo apt install -y cpanminus build-essential libncurses5-dev libreadline-dev libssl-dev perl luarocks net-tools libpcre3-dev valgrind
 
       - name: Linux Before install
         run: |
-          sudo cpanm --notest Test::Nginx > build.log 2>&1 || (cat build.log && exit 1)
+          if [ ! -e perl ]; then sudo cpanm --notest Test::Nginx > build.log 2>&1 || (cat build.log && exit 1); cp -r /usr/local/share/perl/ .; else sudo cp -r perl /usr/local/share; fi
           sudo luarocks install luacheck
 
       - name: Linux Install
@@ -30,7 +36,11 @@ jobs:
           sudo apt-get -y install software-properties-common
           sudo add-apt-repository -y "deb http://openresty.org/package/ubuntu $(lsb_release -sc) main"
           sudo apt-get update
-          sudo apt-get install openresty
+          wget https://openresty.org/download/openresty-${OPENRESTY}.tar.gz
+          tar xfz openresty-${OPENRESTY}.tar.gz
+          cd ../openresty-${OPENRESTY}
+          ./configure --with-debug --add-module=../lua-resty-events
+          make && sudo make install
 
       - name: Install Dependency
         run: |
@@ -40,4 +50,5 @@ jobs:
       - name: Linux Script
         run: |
           export PATH=$OPENRESTY_PREFIX/nginx/sbin:$PATH
+          openresty -V
           make test
