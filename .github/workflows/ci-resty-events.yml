@@ -65,4 +65,4 @@ jobs:
         run: |
           export PATH=$OPENRESTY_PREFIX/bin:$PATH
           openresty -V
-          prove -I. -r t/resty-events
+          TEST_NGINX_BINARY=$OPENRESTY_PREFIX/bin/openresty prove -I. -r t/resty-events
