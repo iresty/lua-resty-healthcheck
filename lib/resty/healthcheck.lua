@@ -34,7 +34,6 @@ require("table.nkeys")
 local cjson = require("cjson.safe").new()
 local table_remove = table.remove
 local resty_timer = require("resty.timer")
-local worker_events = require("resty.events.compat")
 local resty_lock = require ("resty.lock")
 local re_find = ngx.re.find
 local bit = require("bit")
@@ -182,6 +181,18 @@ end
 
 
 local _M = {}
+
+local worker_events
+local function load_events_module(self)
+  if self.events_module == "resty.events" then
+    worker_events = require("resty.events.compat")
+  else
+    worker_events = require("resty.worker.events")
+  end
+
+  assert(worker_events.configured(), "please configure the " ..
+    "events module before using 'lua-resty-healthcheck'")
+end
 
 local codec
 do
@@ -1317,6 +1328,7 @@ local defaults = {
   name = NO_DEFAULT,
   shm_name = NO_DEFAULT,
   type = NO_DEFAULT,
+  events_module = "resty.worker.events",
   status_ver = 0,
   checks = {
     active = {
@@ -1427,10 +1439,9 @@ end
 -- @return checker object, or `nil + error`
 function _M.new(opts)
   opts = opts or {}
-  assert(worker_events.configured(), "please configure the " ..
-      "'lua-resty-worker-events' module before using 'lua-resty-healthcheck'")
 
   local self = fill_in_settings(opts, defaults)
+  load_events_module(self)
 
   assert(self.checks.active.healthy.successes < 255,        "checks.active.healthy.successes must be at most 254")
   assert(self.checks.active.unhealthy.tcp_failures < 255,   "checks.active.unhealthy.tcp_failures must be at most 254")

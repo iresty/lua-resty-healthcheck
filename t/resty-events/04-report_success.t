@@ -59,6 +59,7 @@ qq{
             local checker = healthcheck.new({
                 name = "testing",
                 shm_name = "test_shm",
+                events_module = "resty.events",
                 type = "http",
                 checks = {
                     active = {
@@ -135,6 +136,7 @@ qq{
             local checker = healthcheck.new({
                 name = "testing",
                 shm_name = "test_shm",
+                events_module = "resty.events",
                 type = "tcp",
                 checks = {
                     active = {
@@ -210,6 +212,7 @@ qq{
             local checker = healthcheck.new({
                 name = "testing",
                 shm_name = "test_shm",
+                events_module = "resty.events",
                 type = "tcp",
                 checks = {
                     active = {
@@ -273,6 +276,7 @@ qq{
             local checker = healthcheck.new({
                 name = "testing",
                 shm_name = "test_shm",
+                events_module = "resty.events",
                 type = "tcp",
                 checks = {
                     active = {

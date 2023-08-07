@@ -34,7 +34,9 @@ __DATA__
     location = /t {
         content_by_lua_block {
             local healthcheck = require("resty.healthcheck")
-            local ok, err = pcall(healthcheck.new)
+            local ok, err = pcall(healthcheck.new, {
+                events_module = "resty.events",
+            })
             ngx.log(ngx.ERR, err)
         }
     }
@@ -55,6 +57,7 @@ please configure
             local healthcheck = require("resty.healthcheck")
             local ok, err = pcall(healthcheck.new, {
                 shm_name = "test_shm",
+                events_module = "resty.events",
             })
             ngx.log(ngx.ERR, err)
         }
@@ -77,6 +80,7 @@ required option 'name' is missing
             local ok, err = pcall(healthcheck.new, {
                 name = "testing",
                 shm_name = "invalid_shm",
+                events_module = "resty.events",
             })
             ngx.log(ngx.ERR, err)
         }
@@ -99,6 +103,7 @@ no shm found by name
             local ok, err = pcall(healthcheck.new, {
                 name = "testing",
                 shm_name = "test_shm",
+                events_module = "resty.events",
             })
         }
     }
@@ -120,6 +125,7 @@ Healthchecker started!
             local ok, err = pcall(healthcheck.new, {
                 name = "testing",
                 shm_name = "test_shm",
+                events_module = "resty.events",
                 checks = {
                     active = {
                         type = "http",
@@ -130,6 +136,7 @@ Healthchecker started!
             local ok, err = pcall(healthcheck.new, {
                 name = "testing",
                 shm_name = "test_shm",
+                events_module = "resty.events",
                 checks = {
                     active = {
                         type = "https",
@@ -140,6 +147,7 @@ Healthchecker started!
             local ok, err = pcall(healthcheck.new, {
                 name = "testing",
                 shm_name = "test_shm",
+                events_module = "resty.events",
                 checks = {
                     active = {
                         type = "tcp",
@@ -150,6 +158,7 @@ Healthchecker started!
             local ok, err = pcall(healthcheck.new, {
                 name = "testing",
                 shm_name = "test_shm",
+                events_module = "resty.events",
                 checks = {
                     active = {
                         type = "get lost",
@@ -207,6 +216,7 @@ false
                 local ok, err = pcall(healthcheck.new, {
                     name = "testing",
                     shm_name = "test_shm",
+                    events_module = "resty.events",
                     type = "http",
                     checks = test,
                 })

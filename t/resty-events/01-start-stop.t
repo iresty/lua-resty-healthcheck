@@ -47,6 +47,7 @@ __DATA__
             local checker = healthcheck.new({
                 name = "testing",
                 shm_name = "test_shm",
+                events_module = "resty.events",
                 checks = {
                     active = {
                         healthy  = {
@@ -85,6 +86,7 @@ true
             local checker = healthcheck.new({
                 name = "testing",
                 shm_name = "test_shm",
+                events_module = "resty.events",
                 checks = {
                     active = {
                         healthy  = {
@@ -116,6 +118,7 @@ cannot start, timers are still running
             local checker = healthcheck.new({
                 name = "testing",
                 shm_name = "test_shm",
+                events_module = "resty.events",
                 checks = {
                     active = {
                         healthy  = {
@@ -158,6 +161,7 @@ true
             local checker = healthcheck.new({
                 name = "testing",
                 shm_name = "test_shm",
+                events_module = "resty.events",
                 checks = {
                     active = {
                         healthy  = {
@@ -196,6 +200,7 @@ checking
             local checker = healthcheck.new({
                 name = "testing",
                 shm_name = "test_shm",
+                events_module = "resty.events",
                 checks = {
                     active = {
                         healthy  = {

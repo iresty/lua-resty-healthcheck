@@ -51,6 +51,7 @@ __DATA__
             local checker = healthcheck.new({
                 name = "testing",
                 shm_name = "test_shm",
+                events_module = "resty.events",
                 checks = {
                     active = {
                         type = "https",
@@ -89,6 +90,7 @@ true
             local checker = healthcheck.new({
                 name = "testing",
                 shm_name = "test_shm",
+                events_module = "resty.events",
                 checks = {
                     active = {
                         type = "https",
@@ -127,6 +129,7 @@ false
             local checker = healthcheck.new({
                 name = "testing",
                 shm_name = "test_shm",
+                events_module = "resty.events",
                 checks = {
                     active = {
                         type = "https",

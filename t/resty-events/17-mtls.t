@@ -47,13 +47,14 @@ qq{
     location = /t {
         content_by_lua_block {
             local pl_file = require "pl.file"
-            local cert = pl_file.read("t/util/cert.pem", true)
-            local key = pl_file.read("t/util/key.pem", true)
+            local cert = pl_file.read("t/resty-events/util/cert.pem", true)
+            local key = pl_file.read("t/resty-events/util/key.pem", true)
 
             local healthcheck = require("resty.healthcheck")
             local checker = healthcheck.new({
                 name = "testing_mtls",
                 shm_name = "test_shm",
+                events_module = "resty.events",
                 type = "http",
                 ssl_cert = cert,
                 ssl_key = key,
@@ -100,13 +101,14 @@ qq{
         content_by_lua_block {
             local pl_file = require "pl.file"
             local ssl = require "ngx.ssl"
-            local cert = ssl.parse_pem_cert(pl_file.read("t/util/cert.pem", true))
-            local key = ssl.parse_pem_priv_key(pl_file.read("t/util/key.pem", true))
+            local cert = ssl.parse_pem_cert(pl_file.read("t/resty-events/util/cert.pem", true))
+            local key = ssl.parse_pem_priv_key(pl_file.read("t/resty-events/util/key.pem", true))
 
             local healthcheck = require("resty.healthcheck")
             local checker = healthcheck.new({
                 name = "testing_mtls",
                 shm_name = "test_shm",
+                events_module = "resty.events",
                 type = "http",
                 ssl_cert = cert,
                 ssl_key = key,

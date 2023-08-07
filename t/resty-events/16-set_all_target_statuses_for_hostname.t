@@ -50,6 +50,7 @@ qq{
             local checker = healthcheck.new({
                 name = "testing",
                 shm_name = "test_shm",
+                events_module = "resty.events",
             })
             checker:add_target("127.0.0.1", 2112, "rush", true)
             checker:add_target("127.0.0.2", 2112, "rush", true)
@@ -89,6 +90,7 @@ qq{
             local checker = healthcheck.new({
                 name = "testing",
                 shm_name = "test_shm",
+                events_module = "resty.events",
                 checks = {
                     passive = {
                         unhealthy  = {
@@ -135,6 +137,7 @@ qq{
             local checker = healthcheck.new({
                 name = "testing",
                 shm_name = "test_shm",
+                events_module = "resty.events",
                 checks = {
                     passive = {
                         healthy = {
@@ -187,6 +190,7 @@ qq{
             local checker = healthcheck.new({
                 name = "testing",
                 shm_name = "test_shm",
+                events_module = "resty.events",
                 checks = {
                     passive = {
                         healthy = {

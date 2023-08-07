@@ -56,6 +56,7 @@ qq{
         local checker = healthcheck.new({
             name = "testing",
             shm_name = "test_shm",
+            events_module = "resty.events",
             checks = {
                 active = {
                     http_path = "/status",

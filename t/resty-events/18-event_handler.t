@@ -1,7 +1,9 @@
-use Test::Nginx::Socket::Lua 'no_plan';
+use Test::Nginx::Socket::Lua;
 use Cwd qw(cwd);
 
 workers(1);
+
+plan tests => repeat_each() * 4;
 
 my $pwd = cwd();
 $ENV{TEST_NGINX_SERVROOT} = server_root();
@@ -36,7 +38,7 @@ run_tests();
 
 __DATA__
 
-=== TEST 1: req_headers: {"User-Agent", "curl/7.29.0"}
+=== TEST 1: add_target() without hostname, remove_target() with same ip:port
 --- http_config eval
 qq{
     $::HttpConfig
@@ -55,19 +57,24 @@ qq{
             local checker = healthcheck.new({
                 name = "testing",
                 shm_name = "test_shm",
+                events_module = "resty.events",
                 checks = {
                     active = {
                         http_path = "/status",
                         healthy  = {
                             interval = 0.1
                         },
-                        req_headers = {"User-Agent: curl/7.29.0"}
+                        unhealthy  = {
+                            interval = 0.1
+                        }
                     }
                 }
             })
             ngx.sleep(0.2) -- wait twice the interval
-            local ok, err = checker:add_target("127.0.0.1", 2112, nil, true)
+            local ok, err = checker:add_target("127.0.0.1", 2112)
             ngx.say(ok)
+            ngx.sleep(0.2) -- wait twice the interval
+            ok, err = checker:remove_target("127.0.0.1", 2112)
             ngx.sleep(0.2) -- wait twice the interval
         }
     }
@@ -75,17 +82,8 @@ qq{
 GET /t
 --- response_body
 true
---- error_log
-checking healthy targets: nothing to do
-checking healthy targets: #1
-GET /status HTTP/1.1
-Connection: close
-User-Agent: curl/7.29.0
-Host: 127.0.0.1
 
-
-
-=== TEST 2: req_headers: {"User-Agent", "curl"}
+=== TEST 2: add_target() with hostname, remove_target() on same target
 --- http_config eval
 qq{
     $::HttpConfig
@@ -104,19 +102,24 @@ qq{
             local checker = healthcheck.new({
                 name = "testing",
                 shm_name = "test_shm",
+                events_module = "resty.events",
                 checks = {
                     active = {
                         http_path = "/status",
                         healthy  = {
                             interval = 0.1
                         },
-                        req_headers = {"User-Agent: curl"}
+                        unhealthy  = {
+                            interval = 0.1
+                        }
                     }
                 }
             })
             ngx.sleep(0.2) -- wait twice the interval
-            local ok, err = checker:add_target("127.0.0.1", 2112, nil, true)
+            local ok, err = checker:add_target("127.0.0.1", 2112, "localhost")
             ngx.say(ok)
+            ngx.sleep(0.2) -- wait twice the interval
+            ok, err = checker:remove_target("127.0.0.1", 2112, "localhost")
             ngx.sleep(0.2) -- wait twice the interval
         }
     }
@@ -124,10 +127,4 @@ qq{
 GET /t
 --- response_body
 true
---- error_log
-checking healthy targets: nothing to do
-checking healthy targets: #1
-GET /status HTTP/1.1
-Connection: close
-User-Agent: curl
-Host: 127.0.0.1
+

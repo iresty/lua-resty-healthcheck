@@ -50,6 +50,7 @@ qq{
             local checker = healthcheck.new({
                 name = "testing",
                 shm_name = "test_shm",
+                events_module = "resty.events",
             })
             local ok, err = checker:add_target("127.0.0.1", 2112, nil, true)
             ngx.sleep(0.01)
@@ -82,6 +83,7 @@ qq{
             local checker = healthcheck.new({
                 name = "testing",
                 shm_name = "test_shm",
+                events_module = "resty.events",
                 checks = {
                     passive = {
                         unhealthy  = {
@@ -123,6 +125,7 @@ qq{
             local checker = healthcheck.new({
                 name = "testing",
                 shm_name = "test_shm",
+                events_module = "resty.events",
                 checks = {
                     passive = {
                         healthy = {
@@ -168,6 +171,7 @@ qq{
             local checker = healthcheck.new({
                 name = "testing",
                 shm_name = "test_shm",
+                events_module = "resty.events",
                 checks = {
                     passive = {
                         healthy = {

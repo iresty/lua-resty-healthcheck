@@ -3,7 +3,7 @@ use Cwd qw(cwd);
 
 workers(1);
 
-plan tests => repeat_each() * (blocks() * 4) + 2;
+plan tests => repeat_each() * (blocks() * 3);
 
 my $pwd = cwd();
 $ENV{TEST_NGINX_SERVROOT} = server_root();
@@ -38,13 +38,15 @@ run_tests();
 
 __DATA__
 
-=== TEST 1: get_target_status() reports proper status
+
+
+=== TEST 1: garbage collect the checker object
 --- http_config eval
 qq{
     $::HttpConfig
 
     server {
-        listen 2115;
+        listen 2121;
         location = /status {
             return 200;
         }
@@ -53,56 +55,44 @@ qq{
 --- config
     location = /t {
         content_by_lua_block {
+            local dump = function(...) ngx.log(ngx.DEBUG,"\027[31m\n", require("pl.pretty").write({...}),"\027[0m") end
             local healthcheck = require("resty.healthcheck")
             local checker = healthcheck.new({
                 name = "testing",
                 shm_name = "test_shm",
+                events_module = "resty.events",
+                type = "http",
                 checks = {
                     active = {
                         http_path = "/status",
                         healthy  = {
-                            interval = 999, -- we don't want active checks
-                            successes = 1,
+                            interval = 0.1,
+                            successes = 3,
                         },
                         unhealthy  = {
-                            interval = 999, -- we don't want active checks
-                            tcp_failures = 1,
-                            http_failures = 1,
+                            interval = 0.1,
+                            http_failures = 3,
                         }
                     },
-                    passive = {
-                        healthy  = {
-                            successes = 1,
-                        },
-                        unhealthy  = {
-                            tcp_failures = 1,
-                            http_failures = 1,
-                        }
-                    }
                 }
             })
-            local ok, err = checker:add_target("127.0.0.1", 2115, nil, true)
-            ngx.sleep(0.01)
-            ngx.say(checker:get_target_status("127.0.0.1", 2115))  -- true
-
-            checker:report_tcp_failure("127.0.0.1", 2115)
-            ngx.sleep(0.01)
-            ngx.say(checker:get_target_status("127.0.0.1", 2115))  -- false
-
-            checker:report_success("127.0.0.1", 2115)
-            ngx.sleep(0.01)
-            ngx.say(checker:get_target_status("127.0.0.1", 2115))  -- true
+            assert(checker:add_target("127.0.0.1", 2121, nil, true))
+            local weak_table = setmetatable({ checker },{
+              __mode = "v",
+            })
+            checker:clean()
+            checker = nil   -- now only anchored in weak table above
+            collectgarbage()
+            collectgarbage()
+            collectgarbage()
+            collectgarbage()
+            ngx.sleep(0.5)  -- leave room for timers to run (they shouldn't, but we want to be sure)
+            ngx.say(#weak_table)  -- after GC, should be 0 length
         }
     }
 --- request
 GET /t
 --- response_body
-true
-false
-true
---- error_log
-checking healthy targets: nothing to do
-checking unhealthy targets: nothing to do
+0
 --- no_error_log
 checking healthy targets: #1
-checking unhealthy targets: #1
