@@ -46,7 +46,7 @@ jobs:
           wget https://openresty.org/download/openresty-${OPENRESTY}.tar.gz
           tar xzf openresty-${OPENRESTY}.tar.gz
           cd ./openresty-${OPENRESTY}
-          ./configure --with-debug --add-module=../lua-resty-events
+          ./configure --prefix=$OPENRESTY_PREFIX --with-debug --add-module=../lua-resty-events
           make && sudo make install
 
       - name: Install Dependency
