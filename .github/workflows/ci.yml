@@ -48,12 +48,13 @@ jobs:
           cd ./openresty-${OPENRESTY}
           ./configure --prefix=$OPENRESTY_PREFIX --with-debug --add-module=../lua-resty-events
           make && sudo make install
+          sudo make install LUA_LIBDIR=$OPENRESTY_PREFIX/lualib
 
       - name: Install lua-resty-events
         if: steps.cache-deps.outputs.cache-hit != 'true'
         run: |
           cd lua-resty-events
-          OPENRESTY_PREFIX=$OPENRESTY_PREFIX PREFIX=$OPENRESTY_PREFIX LUA_LIB_DIR=$OPENRESTY_PREFIX/lualib make install
+          sudo make install OPENRESTY_PREFIX=$OPENRESTY_PREFIX PREFIX=$OPENRESTY_PREFIX LUA_LIB_DIR=$OPENRESTY_PREFIX/lualib
 
       - name: Install Dependency
         run: |
