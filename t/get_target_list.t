@@ -78,7 +78,7 @@ qq{
             })
             checker:add_target("127.0.0.1", 2116, nil, false)
             checker:add_target("127.0.0.2", 2116, nil, false)
-            ngx.sleep(3)
+            ngx.sleep(2)
             local nodes = healthcheck.get_target_list(name, shm_name)
             assert(#nodes == 2, "invalid number of nodes")
             for _, node in ipairs(nodes) do
