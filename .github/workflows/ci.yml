@@ -49,6 +49,12 @@ jobs:
           ./configure --prefix=$OPENRESTY_PREFIX --with-debug --add-module=../lua-resty-events
           make && sudo make install
 
+      - name: Install lua-resty-events
+        if: steps.cache-deps.outputs.cache-hit != 'true'
+        run: |
+          cd lua-resty-events
+          OPENRESTY_PREFIX=$OPENRESTY_PREFIX PREFIX=$OPENRESTY_PREFIX LUA_LIB_DIR=$OPENRESTY_PREFIX/lualib make install
+
       - name: Install Dependency
         run: |
           curl https://raw.githubusercontent.com/apache/apisix/master/utils/linux-install-luarocks.sh -sL | sh -
