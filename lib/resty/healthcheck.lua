@@ -371,6 +371,48 @@ local function key_for(key_prefix, ip, port, hostname)
 end
 
 
+local deepcopy
+do
+  local function _deepcopy(orig, copied)
+    -- prevent infinite loop when a field refers its parent
+    copied[orig] = true
+    -- If the array-like table contains nil in the middle,
+    -- the len might be smaller than the expected.
+    -- But it doesn't affect the correctness.
+    local len = #orig
+    local copy = table.new(len, table.nkeys(orig) - len)
+    for orig_key, orig_value in pairs(orig) do
+      if type(orig_value) == "table" and not copied[orig_value] then
+        copy[orig_key] = _deepcopy(orig_value, copied)
+      else
+        copy[orig_key] = orig_value
+      end
+    end
+
+    local mt = getmetatable(orig)
+    if mt ~= nil then
+      setmetatable(copy, mt)
+    end
+
+    return copy
+  end
+
+
+  local copied_recorder = {}
+
+  function deepcopy(orig)
+    local orig_type = type(orig)
+    if orig_type ~= 'table' then
+      return orig
+    end
+
+    local res = _deepcopy(orig, copied_recorder)
+    table.clear(copied_recorder)
+    return res
+  end
+end
+
+
 local checker = {}
 
 
@@ -1027,15 +1069,15 @@ function checker:run_single_check(ip, port, hostname, hostheader)
         headers = new_tab(0, headers_length)
         local idx = 0
         for key, values in pairs(req_headers) do
-            if type(values) == "table" then
-              for _, value in ipairs(values) do
-                idx = idx + 1
-                headers[idx] = key .. ": " .. tostring(value)
-              end
-            else
+          if type(values) == "table" then
+            for _, value in ipairs(values) do
               idx = idx + 1
-              headers[idx] = key .. ": " .. tostring(values)
+              headers[idx] = key .. ": " .. tostring(value)
             end
+          else
+            idx = idx + 1
+            headers[idx] = key .. ": " .. tostring(values)
+          end
         end
         headers = table_concat(headers, "\r\n")
       end
@@ -1377,7 +1419,7 @@ local function fill_in_settings(opts, defaults, ctx)
         obj[k] = v
       end
     elseif default ~= NO_DEFAULT then
-      obj[k] = default
+      obj[k] = deepcopy(default)
     end
 
   end
