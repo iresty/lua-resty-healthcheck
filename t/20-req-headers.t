@@ -59,7 +59,7 @@ true
 --- error_log
 checking healthy targets: nothing to do
 checking healthy targets: #1
-GET /status HTTP/1.0
+GET /status HTTP/1.1
 User-Agent: curl/7.29.0
 Host: 127.0.0.1
 
@@ -109,7 +109,7 @@ true
 --- error_log
 checking healthy targets: nothing to do
 checking healthy targets: #1
-GET /status HTTP/1.0
+GET /status HTTP/1.1
 User-Agent: curl
 Host: 127.0.0.1
 
@@ -158,7 +158,7 @@ true
 --- error_log
 checking healthy targets: nothing to do
 checking healthy targets: #1
-GET /status HTTP/1.0
+GET /status HTTP/1.1
 User-Agent: curl
 Host: 127.0.0.1
 
@@ -208,7 +208,7 @@ true
 --- error_log
 checking healthy targets: nothing to do
 checking healthy targets: #1
-GET /status HTTP/1.0
+GET /status HTTP/1.1
 User-Agent: curl
 Host: 127.0.0.1
 
@@ -258,7 +258,7 @@ true
 --- error_log
 checking healthy targets: nothing to do
 checking healthy targets: #1
-GET /status HTTP/1.0
+GET /status HTTP/1.1
 User-Agent: curl
 User-Agent: nginx
 Host: 127.0.0.1

@@ -1047,7 +1047,7 @@ function checker:run_single_check(ip, port, hostname, hostheader)
   end
 
   local path = self.checks.active.http_path
-  local request = ("GET %s HTTP/1.0\r\n%sHost: %s\r\n\r\n"):format(path, headers, hostheader or hostname or ip)
+  local request = ("GET %s HTTP/1.1\r\nConnection: close\r\n%sHost: %s\r\n\r\n"):format(path, headers, hostheader or hostname or ip)
   self:log(DEBUG, "request head: ", request)
 
   local bytes
