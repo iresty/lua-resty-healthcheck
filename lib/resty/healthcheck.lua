@@ -1692,7 +1692,7 @@ function _M.get_target_list(name, shm_name)
   self.TARGET_LIST_LOCK = SHM_PREFIX .. self.name .. ":target_list_lock"
   self.LOG_PREFIX       = LOG_PREFIX .. "(" .. self.name .. ") "
 
-  local ok, err = run_fn_locked_target_list(false, self, function(target_list)
+  local ok, err = run_locked(self, self.TARGET_LIST_LOCK, with_target_list, self, function(target_list)
     self.targets = target_list
     for _, target in ipairs(self.targets) do
       local state_key = key_for(self.TARGET_STATE, target.ip, target.port, target.hostname)
@@ -1706,7 +1706,8 @@ function _M.get_target_list(name, shm_name)
   end)
 
   for _, target in ipairs(self.targets) do
-    local ok = run_mutexed_fn(false, self, target.ip, target.port, target.hostname, function()
+    local key = key_for(self.TARGET_LOCK, target.ip, target.port, target.hostname)
+    local ok = run_locked(self, key, function()
       local counter = self.shm:get(key_for(self.TARGET_COUNTER,
         target.ip, target.port, target.hostname))
       target.counter = {
