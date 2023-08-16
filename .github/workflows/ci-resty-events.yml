@@ -1,0 +1,68 @@
+name: CI resty-events
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    runs-on: "ubuntu-latest"
+
+    strategy:
+      matrix:
+        include:
+          - openresty: "1.21.4.1rc2"
+    env:
+      OPENRESTY_PREFIX: "/usr/local/openresty"
+      OPENRESTY: ${{ matrix.openresty }}
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v3
+
+      - name: Checkout lua-resty-events
+        uses: actions/checkout@v3
+        with:
+          repository: Kong/lua-resty-events
+          ref: refs/tags/0.2.0
+          path: lua-resty-events
+
+      - name: Linux Get dependencies
+        run: sudo apt install -y wget cpanminus build-essential libncurses5-dev libreadline-dev libssl-dev perl luarocks net-tools libpcre3-dev valgrind
+
+      - name: Linux Before install
+        run: |
+          if [ ! -e perl ]; then sudo cpanm --notest Test::Nginx > build.log 2>&1 || (cat build.log && exit 1); cp -r /usr/local/share/perl/ .; else sudo cp -r perl /usr/local/share; fi
+          sudo luarocks install luacheck
+
+      - name: Linux Install
+        run: |
+          wget -qO - https://openresty.org/package/pubkey.gpg | sudo apt-key add -
+          sudo apt-get -y install software-properties-common
+          sudo add-apt-repository -y "deb http://openresty.org/package/ubuntu $(lsb_release -sc) main"
+          sudo apt-get update
+          wget https://openresty.org/download/openresty-${OPENRESTY}.tar.gz
+          tar xzf openresty-${OPENRESTY}.tar.gz
+          cd ./openresty-${OPENRESTY}
+          ./configure --prefix=$OPENRESTY_PREFIX --with-debug --add-module=../lua-resty-events
+          make && sudo make install
+          sudo make install LUA_LIBDIR=$OPENRESTY_PREFIX/lualib
+
+      - name: Install lua-resty-events
+        if: steps.cache-deps.outputs.cache-hit != 'true'
+        run: |
+          cd lua-resty-events
+          sudo make install OPENRESTY_PREFIX=$OPENRESTY_PREFIX PREFIX=$OPENRESTY_PREFIX LUA_LIB_DIR=$OPENRESTY_PREFIX/lualib
+
+      - name: Install Dependency
+        run: |
+          curl https://raw.githubusercontent.com/apache/apisix/master/utils/linux-install-luarocks.sh -sL | sh -
+          sudo make deps
+
+      - name: Linux Script
+        run: |
+          export PATH=$OPENRESTY_PREFIX/bin:$PATH
+          openresty -V
+          TEST_NGINX_BINARY=$OPENRESTY_PREFIX/bin/openresty prove -I. -r t/resty-events

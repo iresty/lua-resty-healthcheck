@@ -34,7 +34,6 @@ require("table.nkeys")
 local cjson = require("cjson.safe").new()
 local table_remove = table.remove
 local resty_timer = require("resty.timer")
-local worker_events = require("resty.worker.events")
 local resty_lock = require ("resty.lock")
 local re_find = ngx.re.find
 local bit = require("bit")
@@ -183,19 +182,32 @@ end
 
 local _M = {}
 
+local worker_events
+local function load_events_module(self)
+  if self.events_module == "resty.events" then
+    worker_events = require("resty.events.compat")
+  else
+    worker_events = require("resty.worker.events")
+  end
 
--- TODO: improve serialization speed
--- serialize a table to a string
-local function serialize(t)
-  return cjson.encode(t)
+  assert(worker_events.configured(), "please configure the " ..
+    "events module before using 'lua-resty-healthcheck'")
 end
 
+local codec
+do
+  local ok
+  ok, codec = pcall(require, "string.buffer")
+  if not ok then
+    codec = require("cjson.safe").new()
+  end
+end
+
+-- serialize a table to a string
+local serialize = codec.encode
 
 -- deserialize a string to a table
-local function deserialize(s)
-  return cjson.decode(s)
-end
-
+local deserialize = codec.decode
 
 local function key_for(key_prefix, ip, port, hostname)
   return string.format("%s:%s:%s%s", key_prefix, ip, port, hostname and ":" .. hostname or "")
@@ -1265,6 +1277,11 @@ function checker:start()
   return true
 end
 
+--- Clean unregisters all event callbacks. This should be called before un-reference or destroy the checker instance
+function checker:clean()
+  worker_events.unregister(self.ev_callback, self.EVENT_SOURCE)
+end
+
 
 --============================================================================
 -- Create health-checkers
@@ -1322,6 +1339,7 @@ local defaults = {
   name = NO_DEFAULT,
   shm_name = NO_DEFAULT,
   type = NO_DEFAULT,
+  events_module = "resty.worker.events",
   status_ver = 0,
   checks = {
     active = {
@@ -1431,11 +1449,10 @@ end
 --
 -- @return checker object, or `nil + error`
 function _M.new(opts)
-
-  assert(worker_events.configured(), "please configure the " ..
-      "'lua-resty-worker-events' module before using 'lua-resty-healthcheck'")
+  opts = opts or {}
 
   local self = fill_in_settings(opts, defaults)
+  load_events_module(self)
 
   assert(self.checks.active.healthy.successes < 255,        "checks.active.healthy.successes must be at most 254")
   assert(self.checks.active.unhealthy.tcp_failures < 255,   "checks.active.unhealthy.tcp_failures must be at most 254")
