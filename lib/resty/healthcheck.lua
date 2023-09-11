@@ -520,9 +520,6 @@ function checker:clear()
 
     self.targets = {}
 
-    -- raise event for our removed target
-    self:raise_event(self.events.clear)
-
     return true
   end)
 end
