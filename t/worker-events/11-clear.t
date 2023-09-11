@@ -168,3 +168,41 @@ unhealthy HTTP increment (1/3) for '(127.0.0.1:21120)'
 unhealthy HTTP increment (2/3) for '(127.0.0.1:21120)'
 --- no_error_log
 unhealthy HTTP increment (3/3) for '(127.0.0.1:21120)'
+
+=== TEST 4: clear(), target_list in other checkers won't be affected
+--- http_config eval: $::HttpConfig
+--- config
+    location = /t {
+        content_by_lua_block {
+            local we = require "resty.worker.events"
+            assert(we.configure{ shm = "my_worker_events", interval = 0.1 })
+            local healthcheck = require("resty.healthcheck")
+            local config = {
+                name = "testing",
+                shm_name = "test_shm",
+                checks = {
+                    active = {
+                        healthy  = {
+                            interval = 0.1
+                        },
+                        unhealthy  = {
+                            interval = 0.1
+                        }
+                    }
+                }
+            }
+            local checker1 = healthcheck.new(config)
+            local checker2 = healthcheck.new(config)
+            for i = 1, 10 do
+                checker1:add_target("127.0.0.1", 20000 + i, nil, false)
+            end
+            checker2:clear()
+            ngx.sleep(0.2) -- wait twice the interval
+            local ok, err = checker1:get_target_status("127.0.0.1", 20001)
+            ngx.say(ok)
+        }
+    }
+--- request
+GET /t
+--- response_body
+false
