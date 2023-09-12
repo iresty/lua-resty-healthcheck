@@ -3,7 +3,7 @@ use Cwd qw(cwd);
 
 workers(1);
 
-plan tests => repeat_each() * 24;
+plan tests => repeat_each() * 21;
 
 my $pwd = cwd();
 $ENV{TEST_NGINX_SERVROOT} = server_root();
