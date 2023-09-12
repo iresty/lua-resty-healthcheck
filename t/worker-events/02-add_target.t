@@ -3,12 +3,12 @@ use Cwd qw(cwd);
 
 workers(1);
 
-plan('no_plan');
+plan tests => repeat_each() * (blocks() * 4) + 5;
 
 my $pwd = cwd();
 
 our $HttpConfig = qq{
-    lua_package_path "$pwd/deps/share/lua/5.1/?/init.lua;$pwd/deps/share/lua/5.1/?.lua;$pwd/lib/?.lua;;";
+    lua_package_path "$pwd/lib/?.lua;;";
     lua_shared_dict test_shm 8m;
     lua_shared_dict my_worker_events 8m;
 };
@@ -16,53 +16,6 @@ our $HttpConfig = qq{
 run_tests();
 
 __DATA__
-
-=== TEST 1: add_target() will update self:targets immediately
---- http_config eval: $::HttpConfig
---- config
-    location = /t {
-        content_by_lua_block {
-            local we = require "resty.worker.events"
-            assert(we.configure{ shm = "my_worker_events", interval = 5 })
-            local healthcheck = require("resty.healthcheck")
-            local checker = healthcheck.new({
-                name = "testing",
-                shm_name = "test_shm",
-                checks = {
-                    active = {
-                        healthy  = {
-                            interval = 5
-                        },
-                        unhealthy  = {
-                            interval = 5
-                        }
-                    }
-                }
-            })
-            ngx.sleep(2)
-            checker:add_target("127.0.0.1", 11111, nil, false)
-            local ok, err = checker:get_target_status("127.0.0.1", 11111)
-            ngx.say(ok)
-        }
-    }
---- request
-GET /t
---- response_body
-false
---- error_log
-levy update self.targets
---- LAST
-
-
-
-
-
-
-
-
-
-
-
 
 === TEST 1: add_target() adds an unhealthy target
 --- http_config eval: $::HttpConfig

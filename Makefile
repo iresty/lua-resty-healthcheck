@@ -14,7 +14,7 @@ install: all
 	$(INSTALL) lib/resty/*.lua $(DESTDIR)/$(LUA_LIB_DIR)/resty/
 
 test: all
-	PATH=$(OPENRESTY_PREFIX)/nginx/sbin:$$PATH prove -I../test-nginx/lib -I./ -r t
+	PATH=$(OPENRESTY_PREFIX)/nginx/sbin:$$PATH prove -I../test-nginx/lib -r t
 
 deps:
-	luarocks install rockspecs/lua-resty-healthcheck-api7-master-0-0.rockspec --only-deps --tree deps
+	luarocks install rockspecs/lua-resty-healthcheck-api7-master-0-0.rockspec --only-deps

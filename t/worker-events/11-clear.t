@@ -3,11 +3,12 @@ use Cwd qw(cwd);
 
 workers(1);
 
-plan('no_plan');
+plan tests => repeat_each() * 23;
 
 my $pwd = cwd();
 
 our $HttpConfig = qq{
+    lua_package_path "$pwd/lib/?.lua;;";
     lua_shared_dict test_shm 8m;
     lua_shared_dict my_worker_events 8m;
 };
