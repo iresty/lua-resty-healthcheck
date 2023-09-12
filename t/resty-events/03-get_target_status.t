@@ -102,8 +102,6 @@ true
 false
 true
 --- error_log
-checking healthy targets: nothing to do
 checking unhealthy targets: nothing to do
 --- no_error_log
-checking healthy targets: #1
 checking unhealthy targets: #1

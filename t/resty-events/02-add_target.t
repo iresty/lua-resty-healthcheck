@@ -68,7 +68,6 @@ GET /t
 true
 --- error_log
 checking healthy targets: nothing to do
-checking unhealthy targets: nothing to do
 checking unhealthy targets: #1
 
 --- no_error_log
@@ -118,7 +117,6 @@ GET /t
 --- response_body
 true
 --- error_log
-checking healthy targets: nothing to do
 checking unhealthy targets: nothing to do
 checking healthy targets: #1
 
@@ -173,7 +171,6 @@ GET /t
 --- response_body
 true
 --- error_log
-checking healthy targets: nothing to do
 checking unhealthy targets: nothing to do
 checking healthy targets: #1
 

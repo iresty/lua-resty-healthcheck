@@ -106,7 +106,6 @@ GET /t
 false
 false
 --- error_log
-checking healthy targets: nothing to do
 checking unhealthy targets: nothing to do
 unhealthy HTTP increment (1/3) for '(127.0.0.1:2117)'
 unhealthy HTTP increment (2/3) for '(127.0.0.1:2117)'
@@ -184,7 +183,6 @@ GET /t
 false
 false
 --- error_log
-checking healthy targets: nothing to do
 checking unhealthy targets: nothing to do
 unhealthy TCP increment (1/2) for '(127.0.0.1:2117)'
 unhealthy TCP increment (2/2) for '(127.0.0.1:2117)'
@@ -260,7 +258,6 @@ GET /t
 true
 true
 --- error_log
-checking healthy targets: nothing to do
 checking unhealthy targets: nothing to do
 --- no_error_log
 unhealthy TCP increment (1/2) for '(127.0.0.1:2117)'

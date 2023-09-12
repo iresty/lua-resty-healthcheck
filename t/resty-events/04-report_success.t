@@ -106,7 +106,6 @@ true
 true
 --- error_log
 checking healthy targets: nothing to do
-checking unhealthy targets: nothing to do
 healthy SUCCESS increment (1/3) for '(127.0.0.1:2116)'
 healthy SUCCESS increment (2/3) for '(127.0.0.1:2116)'
 healthy SUCCESS increment (3/3) for '(127.0.0.1:2116)'
@@ -183,7 +182,6 @@ true
 true
 --- error_log
 checking healthy targets: nothing to do
-checking unhealthy targets: nothing to do
 healthy SUCCESS increment (1/3) for '(127.0.0.1:2116)'
 healthy SUCCESS increment (2/3) for '(127.0.0.1:2116)'
 healthy SUCCESS increment (3/3) for '(127.0.0.1:2116)'

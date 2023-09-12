@@ -56,12 +56,12 @@ qq{
                         http_path = "/status",
                         healthy  = {
                             interval = 999, -- we don't want active checks
-                            successes = 1,
+                            successes = 2,
                         },
                         unhealthy  = {
                             interval = 999, -- we don't want active checks
-                            tcp_failures = 1,
-                            http_failures = 1,
+                            tcp_failures = 2,
+                            http_failures = 2,
                         }
                     },
                     passive = {
@@ -133,12 +133,12 @@ qq{
                         http_path = "/status",
                         healthy  = {
                             interval = 999, -- we don't want active checks
-                            successes = 1,
+                            successes = 2,
                         },
                         unhealthy  = {
                             interval = 999, -- we don't want active checks
-                            tcp_failures = 1,
-                            http_failures = 1,
+                            tcp_failures = 2,
+                            http_failures = 2,
                         }
                     },
                     passive = {
@@ -260,12 +260,12 @@ qq{
                         http_path = "/status",
                         healthy  = {
                             interval = 999, -- we don't want active checks
-                            successes = 1,
+                            successes = 2,
                         },
                         unhealthy  = {
                             interval = 999, -- we don't want active checks
-                            tcp_failures = 1,
-                            http_failures = 1,
+                            tcp_failures = 2,
+                            http_failures = 2,
                         }
                     },
                     passive = {

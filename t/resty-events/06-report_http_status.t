@@ -105,7 +105,6 @@ GET /t
 false
 false
 --- error_log
-checking healthy targets: nothing to do
 checking unhealthy targets: nothing to do
 unhealthy HTTP increment (1/3) for '(127.0.0.1:2119)'
 unhealthy HTTP increment (2/3) for '(127.0.0.1:2119)'
@@ -186,7 +185,6 @@ true
 true
 --- error_log
 checking healthy targets: nothing to do
-checking unhealthy targets: nothing to do
 healthy SUCCESS increment (1/4) for '(127.0.0.1:2119)'
 healthy SUCCESS increment (2/4) for '(127.0.0.1:2119)'
 healthy SUCCESS increment (3/4) for '(127.0.0.1:2119)'
@@ -260,7 +258,6 @@ GET /t
 false
 --- error_log
 checking healthy targets: nothing to do
-checking unhealthy targets: nothing to do
 --- no_error_log
 healthy SUCCESS increment
 event: target status '127.0.0.1 (127.0.0.1:2119)' from 'false' to 'true'
@@ -327,7 +324,6 @@ GET /t
 false
 --- error_log
 checking healthy targets: nothing to do
-checking unhealthy targets: nothing to do
 --- no_error_log
 healthy SUCCESS increment
 event: target status '127.0.0.1 (127.0.0.1:2119)' from 'false' to 'true'
@@ -393,14 +389,13 @@ GET /t
 --- response_body
 true
 --- error_log
-checking healthy targets: nothing to do
 checking unhealthy targets: nothing to do
 --- no_error_log
 unhealthy HTTP increment
 event: target status '127.0.0.1 (127.0.0.1:2119)' from 'true' to 'false'
 
 
-=== TEST 4: report_http_status() with success is a nop when active.unhealthy.http_failures == 0
+=== TEST 6: report_http_status() with success is a nop when active.unhealthy.http_failures == 0
 --- http_config eval
 qq{
     $::HttpConfig
@@ -460,14 +455,13 @@ GET /t
 --- response_body
 true
 --- error_log
-checking healthy targets: nothing to do
 checking unhealthy targets: nothing to do
 --- no_error_log
 unhealthy HTTP increment
 event: target status '(127.0.0.1:2119)' from 'true' to 'false'
 
 
-=== TEST 5: report_http_status() must work in log phase
+=== TEST 7: report_http_status() must work in log phase
 --- http_config eval
 qq{
     $::HttpConfig

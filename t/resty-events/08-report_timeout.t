@@ -105,7 +105,6 @@ GET /t
 false
 false
 --- error_log
-checking healthy targets: nothing to do
 checking unhealthy targets: nothing to do
 unhealthy TIMEOUT increment (1/2) for '(127.0.0.1:2122)'
 unhealthy TIMEOUT increment (2/2) for '(127.0.0.1:2122)'
@@ -176,7 +175,6 @@ GET /t
 --- response_body
 true
 --- error_log
-checking healthy targets: nothing to do
 checking unhealthy targets: nothing to do
 --- no_error_log
 unhealthy TCP increment
@@ -245,7 +243,6 @@ GET /t
 --- response_body
 true
 --- error_log
-checking healthy targets: nothing to do
 checking unhealthy targets: nothing to do
 --- no_error_log
 unhealthy TCP increment
