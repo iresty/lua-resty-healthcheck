@@ -418,9 +418,10 @@ function checker:add_target(ip, port, hostname, is_healthy, hostheader, tbl_meta
     return true
   end)
 
-  -- if ok then
-  --   self:event_handler(self.events[internal_health], ip, port, hostname)
-  -- end
+  -- handle event immediately
+  if ok then
+    self:event_handler(self.events[internal_health], ip, port, hostname)
+  end
 
   if ok == false then
     -- the target already existed, no event, but still success
