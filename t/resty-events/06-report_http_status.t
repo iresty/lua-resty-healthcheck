@@ -259,7 +259,7 @@ false
 --- error_log
 checking healthy targets: nothing to do
 --- grep_error_log eval
-qr/healthy SUCCESS increment/
+qr/healthy SUCCESS increment \(\d/\d\)/
 --- grep_error_log_out
 healthy SUCCESS increment (1/4)
 --- no_error_log
