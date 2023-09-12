@@ -6,7 +6,7 @@ workers(1);
 my $pwd = cwd();
 
 our $HttpConfig = qq{
-    lua_package_path "$pwd/lib/?.lua;;";
+    lua_package_path "$pwd/deps/share/lua/5.1/?/init.lua;$pwd/deps/share/lua/5.1/?.lua;$pwd/lib/?.lua;;";
     lua_shared_dict test_shm 8m;
     lua_shared_dict my_worker_events 8m;
 };
@@ -75,6 +75,7 @@ qq{
     }
 --- request
 GET /t
+--- timeout: 5
 
 
 
@@ -136,3 +137,4 @@ qq{
     }
 --- request
 GET /t
+--- timeout: 5
