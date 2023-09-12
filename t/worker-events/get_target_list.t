@@ -75,6 +75,7 @@ qq{
     }
 --- request
 GET /t
+--- timeout: 5
 
 
 
@@ -136,3 +137,4 @@ qq{
     }
 --- request
 GET /t
+--- timeout: 5
