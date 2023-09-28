@@ -24,21 +24,69 @@
 -- @author Hisham Muhammad, Thijs Schreijer
 -- @license Apache 2.0
 
+local bit = require("bit")
+local cjson = require("cjson.safe").new()
+local resty_timer = require("resty.timer")
+local ssl = require("ngx.ssl")
+local worker_events = require("resty.worker.events")
+-- local resty_lock = require("resty.lock") -- required later in the file"
+
 local ERR = ngx.ERR
 local WARN = ngx.WARN
 local DEBUG = ngx.DEBUG
 local ngx_log = ngx.log
+local re_find = ngx.re.find
+local ngx_worker_exiting = ngx.worker.exiting
+local get_phase = ngx.get_phase
+
 local tostring = tostring
 local ipairs = ipairs
-require("table.nkeys")
-local cjson = require("cjson.safe").new()
+local pcall = pcall
+local type = type
+local assert = assert
+
 local table_remove = table.remove
-local resty_timer = require("resty.timer")
-local resty_lock = require ("resty.lock")
-local re_find = ngx.re.find
-local bit = require("bit")
-local ngx_worker_exiting = ngx.worker.exiting
-local ssl = require("ngx.ssl")
+local table_concat = table.concat
+local string_format = string.format
+
+local new_tab
+local nkeys
+local is_array
+
+do
+  local ok
+
+  ok, new_tab = pcall(require, "table.new")
+  if not ok then
+    new_tab = function () return {} end
+  end
+
+  -- OpenResty branch of LuaJIT New API
+  ok, nkeys = pcall(require, "table.nkeys")
+  if not ok then
+    nkeys = function (tab)
+      local count = 0
+      for _, v in pairs(tab) do
+        if v ~= nil then
+          count = count + 1
+        end
+      end
+      return count
+    end
+  end
+
+  ok, is_array = pcall(require, "table.isarray")
+  if not ok then
+    is_array = function(t)
+      for k in pairs(t) do
+          if type(k) ~= "number" or math.floor(k) ~= k then
+            return false
+          end
+      end
+      return true
+    end
+  end
+end
 
 -- constants
 local EVENT_SOURCE_PREFIX = "lua-resty-healthcheck"
@@ -154,13 +202,13 @@ local ngx_timer_at do
     for _, args in ipairs(list) do
       local ok, err = pcall(args[1], ngx_worker_exiting(), unpack(args, 2, args.n))
       if not ok then
-        ngx.log(ngx.ERR, "timer failure: ", err)
+        ngx_log(ERR, "timer failure: ", err)
       end
     end
   end
 
   ngx_timer_at = function(...)
-    local phase = ngx.get_phase()
+    local phase = get_phase()
     if phase ~= "init" and phase ~= "init_worker" then
       -- we're past init/init_worker, so replace this temp function with the
       -- real-deal again, so from here on we run regular timers.
@@ -180,79 +228,146 @@ local ngx_timer_at do
 end
 
 
+local run_locked
+do
+  -- resty_lock is restricted to this scope in order to keep sensitive
+  -- lock-handling code separate separate from all other business logic
+  --
+  -- If you need to use resty_lock in a way that is not covered by the
+  -- `run_locked` helper function defined below, it's strongly-advised to
+  -- define it fully within this scope unless you have a very good reason
+  --
+  -- (see https://github.com/Kong/lua-resty-healthcheck/pull/112)
+  local resty_lock = require "resty.lock"
+
+  local yieldable = {
+    rewrite = true,
+    access  = true,
+    content = true,
+    timer   = true,
+  }
+
+  local function run_in_timer(premature, fn, ...)
+    if not premature then
+      fn(...)
+    end
+  end
+
+  local function schedule(fn, ...)
+    return ngx_timer_at(0, run_in_timer, fn, ...)
+  end
+
+  -- timeout when yieldable
+  local timeout = 5
+
+  -- resty.lock consumes these options immediately, so this table can be reused
+  local opts = {
+    exptime = 10,      -- timeout after which lock is released anyway
+    timeout = timeout, -- max wait time to acquire lock
+  }
+
+  ---
+  -- Acquire a lock and run a function
+  --
+  -- The function call itself is wrapped with `pcall` to protect against
+  -- exception.
+  --
+  -- This function exhibits some special behavior when called during a
+  -- non-yieldable phase such as `init_worker` or `log`:
+  --
+  -- 1. The lock timeout is set to 0 to ensure that `resty.lock` does not
+  --    attempt to sleep/yield
+  -- 2. If acquiring the lock fails due to a timeout, `run_locked`
+  --    (this function) is re-scheduled to run in a timer. In this case,
+  --    the function returns `"scheduled"` instead of the return value of
+  --    the locked function
+  --
+  -- @param self The checker object
+  -- @param key the key/identifier to acquire a lock for
+  -- @param fn The function to execute
+  -- @param ... arguments that will be passed to fn
+  -- @return The results of the function; or nil and an error message
+  -- in case it fails locking.
+  function run_locked(self, key, fn, ...)
+    -- we're extra extra extra defensive in this code path
+    local typ = type(key)
+     -- XXX is a number key ever expected?
+    assert(typ == "string" or typ == "number",
+           "unexpected lock key type: " .. typ)
+    key = tostring(key)
+
+    -- first aqcuire a lock or conditionally re-schedule ourselves in a timer
+    local lock
+    do
+      local yield = yieldable[get_phase()]
+
+      if yield then
+        opts.timeout = timeout
+      else
+        -- if yielding is not possible in the current phase, use a zero timeout
+        -- so that resty.lock will return `nil, "timeout"` immediately instead of
+        -- calling ngx.sleep()
+        opts.timeout = 0
+      end
+
+      local err
+      lock, err = resty_lock:new(self.shm_name, opts)
+      if not lock then
+        return nil, "failed creating lock for '" .. key .. "', " .. err
+      end
+
+      local elapsed
+      elapsed, err = lock:lock(key)
+
+      if not elapsed and err == "timeout" and not yield then
+        -- yielding is not possible in the current phase, so retry in a timer
+        local ok, terr = schedule(run_locked, self, key, fn, ...)
+        if not ok then
+          return nil, terr
+        end
+
+        return "scheduled"
+
+      elseif not elapsed then
+        return nil, "failed acquiring lock for '" .. key .. "', " .. err
+      end
+    end
+
+    local pok, perr, res = pcall(fn, ...)
+
+    local ok, err = lock:unlock()
+    if not ok then
+      self:log(ERR, "failed unlocking '", key, "', ", err)
+    end
+
+    if not pok then
+      return nil, perr
+    else
+      return perr, res
+    end
+  end
+end
+
+
+
 local _M = {}
 
-local worker_events
-local function load_events_module(self)
-  if self.events_module == "resty.events" then
-    worker_events = require("resty.events.compat")
-  else
-    worker_events = require("resty.worker.events")
-  end
 
-  assert(worker_events.configured(), "please configure the " ..
-    "events module before using 'lua-resty-healthcheck'")
-end
-
-local codec
-do
-  local ok
-  ok, codec = pcall(require, "string.buffer")
-  if not ok then
-    codec = require("cjson.safe").new()
-  end
-end
-
+-- TODO: improve serialization speed
 -- serialize a table to a string
-local serialize = codec.encode
+local function serialize(t)
+  return cjson.encode(t)
+end
+
 
 -- deserialize a string to a table
-local deserialize = codec.decode
-
-local function key_for(key_prefix, ip, port, hostname)
-  return string.format("%s:%s:%s%s", key_prefix, ip, port, hostname and ":" .. hostname or "")
+local function deserialize(s)
+  return cjson.decode(s)
 end
 
 
-local deepcopy
-do
-    local function _deepcopy(orig, copied)
-        -- prevent infinite loop when a field refers its parent
-        copied[orig] = true
-        -- If the array-like table contains nil in the middle,
-        -- the len might be smaller than the expected.
-        -- But it doesn't affect the correctness.
-        local len = #orig
-        local copy = table.new(len, table.nkeys(orig) - len)
-        for orig_key, orig_value in pairs(orig) do
-            if type(orig_value) == "table" and not copied[orig_value] then
-                copy[orig_key] = _deepcopy(orig_value, copied)
-            else
-                copy[orig_key] = orig_value
-            end
-        end
-
-        local mt = getmetatable(orig)
-        if mt ~= nil then
-            setmetatable(copy, mt)
-        end
-
-        return copy
-    end
-
-
-    local copied_recorder = {}
-
-    function deepcopy(orig)
-        local orig_type = type(orig)
-        if orig_type ~= 'table' then
-            return orig
-        end
-
-        local res = _deepcopy(orig, copied_recorder)
-        table.clear(copied_recorder)
-        return res
-    end
+local function key_for(key_prefix, ip, port, hostname)
+  return string_format("%s:%s:%s%s", key_prefix, ip, port, hostname and ":" .. hostname or "")
 end
 
 
@@ -277,70 +392,28 @@ local function fetch_target_list(self)
 end
 
 
---- Helper function to run the function holding a lock on the target list.
--- @see locking_target_list
-local function run_fn_locked_target_list(premature, self, fn)
-  if premature then
-    return
+local function with_target_list(self, fn)
+  local targets, err = fetch_target_list(self)
+  if not targets then
+    return nil, err
   end
 
-  local tl_lock, lock_err = resty_lock:new(self.shm_name, {
-    exptime = 10,  -- timeout after which lock is released anyway
-    timeout = 5,   -- max wait time to acquire lock
-  })
-
-  if not tl_lock then
-    return nil, "failed to create lock:" .. lock_err
-  end
-
-  local elapsed, err = tl_lock:lock(self.TARGET_LIST_LOCK)
-  if not elapsed then
-    local err_msg = "failed to acquire lock for '" .. self.TARGET_LIST_LOCK .. "': " .. err
-    self:log(DEBUG, err_msg)
-    return nil, err_msg
-  end
-
-  local final_res, final_err
-
-  local target_list, err = fetch_target_list(self)
-  if not target_list then
-    final_res, final_err = nil, err
-
-  else
-    local status, retval1_or_errmsg, retval2 = pcall(fn, target_list)
-    if not status then
-      final_res, final_err = nil, retval1_or_errmsg
-    else
-      final_res, final_err = retval1_or_errmsg, retval2
-    end
-  end
-
-  local ok, err = tl_lock:unlock()
-  if not ok then
-    -- recoverable: not returning this error, only logging it
-    self:log(ERR, "failed to release lock '", self.TARGET_LIST_LOCK,
-        "': ", err)
-  end
-
-  return final_res, final_err
+  -- this is only ever called in the context of `run_locked`,
+  -- so no pcall needed
+  return fn(targets)
 end
 
 
 --- Run the given function holding a lock on the target list.
 -- @param self The checker object
 -- @param fn The function to execute
--- @return The results of the function; or nil and an error message
--- in case it fails locking.
+-- @return The results of the function; "scheduled" if the function was
+--   scheduled in a timer, or nil and an error message in case of failure
 local function locking_target_list(self, fn)
+  local ok, err = run_locked(self, self.TARGET_LIST_LOCK, with_target_list, self, fn)
 
-  local ok, err = run_fn_locked_target_list(false, self, fn)
-  if err == "failed to acquire lock" then
-    local _, terr = ngx_timer_at(0, run_fn_locked_target_list, self, fn)
-    if terr ~= nil then
-      return nil, terr
-    end
-
-    return true
+  if ok == "scheduled" then
+    self:log(DEBUG, "target_list function re-scheduled in timer")
   end
 
   return ok, err
@@ -366,9 +439,8 @@ end
 -- default is `true`.
 -- @param hostheader (optional) a value to use for the Host header on
 -- active healthchecks.
--- @param tbl_meta (optional) a lua table with custom info of business stuff
 -- @return `true` on success, or `nil + error` on failure.
-function checker:add_target(ip, port, hostname, is_healthy, hostheader, tbl_meta)
+function checker:add_target(ip, port, hostname, is_healthy, hostheader)
   ip = tostring(assert(ip, "no ip address provided"))
   port = assert(tonumber(port), "no port number provided")
   if is_healthy == nil then
@@ -403,7 +475,6 @@ function checker:add_target(ip, port, hostname, is_healthy, hostheader, tbl_meta
       port = port,
       hostname = hostname,
       hostheader = hostheader,
-      meta = tbl_meta,
     }
     target_list = serialize(target_list)
 
@@ -552,65 +623,21 @@ end
 ------------------------------------------------------------------------------
 
 
---- Helper function to actually run the function holding a lock on the target.
--- @see locking_target
-local function run_mutexed_fn(premature, self, ip, port, hostname, fn)
-  if premature then
-    return
-  end
-
-  local tlock, lock_err = resty_lock:new(self.shm_name, {
-                  exptime = 10,  -- timeout after which lock is released anyway
-                  timeout = 5,   -- max wait time to acquire lock
-                })
-  if not tlock then
-    return nil, "failed to create lock:" .. lock_err
-  end
-
-  local lock_key = key_for(self.TARGET_LOCK, ip, port, hostname)
-  local elapsed, err = tlock:lock(lock_key)
-  if not elapsed then
-    local err_msg = "failed to acquire lock for '" .. lock_key .. "': " .. err
-    self:log(DEBUG, err_msg)
-    return nil, err_msg
-  end
-
-  local final_res, final_err
-
-  local status, retval1_or_errmsg, retval2 = pcall(fn)
-  if not status then
-    final_res, final_err = nil, retval1_or_errmsg
-  else
-    final_res, final_err = retval1_or_errmsg, retval2
-  end
-
-  local ok, err = tlock:unlock()
-  if not ok then
-    -- recoverable: not returning this error, only logging it
-    self:log(ERR, "failed to release lock '", lock_key, "': ", err)
-  end
-
-  return final_res, final_err
-end
-
-
 -- Run the given function holding a lock on the target.
 -- @param self The checker object
 -- @param ip Target IP
 -- @param port Target port
 -- @param hostname Target hostname
 -- @param fn The function to execute
--- @return The results of the function; or true in case it fails locking and
+-- @return The results of the function; or "scheduled" in case it fails locking and
 -- will retry asynchronously; or nil+err in case it fails to retry.
 local function locking_target(self, ip, port, hostname, fn)
-  local ok, err = run_mutexed_fn(false, self, ip, port, hostname, fn)
-  if err == "failed to acquire lock" then
-    local _, terr = ngx_timer_at(0, run_mutexed_fn, self, ip, port, hostname, fn)
-    if terr ~= nil then
-      return nil, terr
-    end
+  local key = key_for(self.TARGET_LOCK, ip, port, hostname)
 
-    return true
+  local ok, err = run_locked(self, key, fn)
+
+  if ok == "scheduled" then
+    self:log(DEBUG, "target function for ", key, " was re-scheduled")
   end
 
   return ok, err
@@ -868,7 +895,7 @@ function checker:set_all_target_statuses_for_hostname(hostname, port, is_healthy
     end
   end
 
-  return all_ok, #errs > 0 and table.concat(errs, "; ") or nil
+  return all_ok, #errs > 0 and table_concat(errs, "; ") or nil
 end
 
 
@@ -968,16 +995,16 @@ function checker:run_single_check(ip, port, hostname, hostheader)
     local https_sni, session, err
     https_sni = self.checks.active.https_sni or hostheader or hostname
     if self.ssl_cert and self.ssl_key then
-      session, err = sock:tlshandshake({
-        verify = self.checks.active.https_verify_certificate,
-        client_cert = self.ssl_cert,
-        client_priv_key = self.ssl_key,
-        server_name = https_sni
-      })
-    else
-      session, err = sock:sslhandshake(nil, https_sni,
-                                     self.checks.active.https_verify_certificate)
+      ok, err = sock:setclientcert(self.ssl_cert, self.ssl_key)
+
+      if not ok then
+        self:log(ERR, "failed to set client certificate: ", err)
+      end
     end
+
+    session, err = sock:sslhandshake(nil, https_sni,
+                                     self.checks.active.https_verify_certificate)
+
     if not session then
       sock:close()
       self:log(ERR, "failed SSL handshake with '", hostname or "", " (", ip, ":", port, ")', using server name (sni) '", https_sni, "': ", err)
@@ -987,15 +1014,36 @@ function checker:run_single_check(ip, port, hostname, hostheader)
   end
 
   local req_headers = self.checks.active.headers
-  local headers = table.concat(req_headers, "\r\n")
-  if #headers > 0 then
-    headers = headers .. "\r\n"
-  end
-
-  local req_headers = self.checks.active.req_headers
-  local headers = table.concat(req_headers, "\r\n")
-  if #headers > 0 then
-    headers = headers .. "\r\n"
+  local headers
+  if self.checks.active._headers_str then
+    headers = self.checks.active._headers_str
+  else
+    local headers_length = nkeys(req_headers)
+    if headers_length > 0 then
+      if is_array(req_headers) then
+        self:log(WARN, "array headers is deprecated")
+        headers = table_concat(req_headers, "\r\n")
+      else
+        headers = new_tab(0, headers_length)
+        local idx = 0
+        for key, values in pairs(req_headers) do
+          if type(values) == "table" then
+            for _, value in ipairs(values) do
+              idx = idx + 1
+              headers[idx] = key .. ": " .. tostring(value)
+            end
+          else
+            idx = idx + 1
+            headers[idx] = key .. ": " .. tostring(values)
+          end
+        end
+        headers = table_concat(headers, "\r\n")
+      end
+      if #headers > 0 then
+        headers = headers .. "\r\n"
+      end
+    end
+    self.checks.active._headers_str = headers or ""
   end
 
   local path = self.checks.active.http_path
@@ -1105,7 +1153,12 @@ local function checker_callback(self, health_mode)
 
   -- create a list of targets to check, here we can still do this atomically
   local list_to_check = {}
-  local targets = fetch_target_list(self)
+  local targets, err = fetch_target_list(self)
+  if not targets then
+    self:log(ERR, "checker_callback: ", err)
+    return
+  end
+
   for _, target in ipairs(targets) do
     local tgt = get_target(self, target.ip, target.port, target.hostname)
     local internal_health = tgt and tgt.internal_health or nil
@@ -1119,7 +1172,6 @@ local function checker_callback(self, health_mode)
         port = target.port,
         hostname = target.hostname,
         hostheader = target.hostheader,
-        meta = target.meta,
         debug_health = internal_health,
       }
     end
@@ -1280,11 +1332,6 @@ function checker:start()
   return true
 end
 
---- Clean unregisters all event callbacks. This should be called before un-reference or destroy the checker instance
-function checker:clean()
-  worker_events.unregister(self.ev_callback, self.EVENT_SOURCE)
-end
-
 
 --============================================================================
 -- Create health-checkers
@@ -1297,7 +1344,49 @@ local MAXNUM = 2^31 - 1
 
 local function fail(ctx, k, msg)
   ctx[#ctx + 1] = k
-  error(table.concat(ctx, ".") .. ": " .. msg, #ctx + 1)
+  error(table_concat(ctx, ".") .. ": " .. msg, #ctx + 1)
+end
+
+
+local deepcopy
+do
+  local function _deepcopy(orig, copied)
+    -- prevent infinite loop when a field refers its parent
+    copied[orig] = true
+    -- If the array-like table contains nil in the middle,
+    -- the len might be smaller than the expected.
+    -- But it doesn't affect the correctness.
+    local len = #orig
+    local copy = table.new(len, table.nkeys(orig) - len)
+    for orig_key, orig_value in pairs(orig) do
+      if type(orig_value) == "table" and not copied[orig_value] then
+        copy[orig_key] = _deepcopy(orig_value, copied)
+      else
+        copy[orig_key] = orig_value
+      end
+    end
+
+    local mt = getmetatable(orig)
+    if mt ~= nil then
+      setmetatable(copy, mt)
+    end
+
+    return copy
+  end
+
+
+  local copied_recorder = {}
+
+  function deepcopy(orig)
+    local orig_type = type(orig)
+    if orig_type ~= 'table' then
+      return orig
+    end
+
+    local res = _deepcopy(orig, copied_recorder)
+    table.clear(copied_recorder)
+    return res
+  end
 end
 
 
@@ -1342,7 +1431,6 @@ local defaults = {
   name = NO_DEFAULT,
   shm_name = NO_DEFAULT,
   type = NO_DEFAULT,
-  events_module = "resty.worker.events",
   status_ver = 0,
   checks = {
     active = {
@@ -1366,7 +1454,6 @@ local defaults = {
         timeouts = 3,
         http_failures = 5,
       },
-      req_headers = {""},
     },
     passive = {
       type = "http",
@@ -1429,7 +1516,7 @@ end
 -- * `checks.active.http_path`: path to use in `GET` HTTP request to run on active checks
 -- * `checks.active.https_sni`: SNI server name incase of HTTPS
 -- * `checks.active.https_verify_certificate`: boolean indicating whether to verify the HTTPS certificate
--- * `checks.active.hheaders`: an array of headers (no hash-table! must be pre-formatted)
+-- * `checks.active.headers`: one or more lists of values indexed by header name
 -- * `checks.active.healthy.interval`: interval between checks for healthy targets (in seconds)
 -- * `checks.active.healthy.http_statuses`: which HTTP statuses to consider a success
 -- * `checks.active.healthy.successes`: number of successes to consider a target healthy
@@ -1452,10 +1539,11 @@ end
 --
 -- @return checker object, or `nil + error`
 function _M.new(opts)
-  opts = opts or {}
+
+  assert(worker_events.configured(), "please configure the " ..
+      "'lua-resty-worker-events' module before using 'lua-resty-healthcheck'")
 
   local self = fill_in_settings(opts, defaults)
-  load_events_module(self)
 
   assert(self.checks.active.healthy.successes < 255,        "checks.active.healthy.successes must be at most 254")
   assert(self.checks.active.unhealthy.tcp_failures < 255,   "checks.active.unhealthy.tcp_failures must be at most 254")
@@ -1605,13 +1693,13 @@ function _M.get_target_list(name, shm_name)
   self.TARGET_LIST_LOCK = SHM_PREFIX .. self.name .. ":target_list_lock"
   self.LOG_PREFIX       = LOG_PREFIX .. "(" .. self.name .. ") "
 
-  local ok, err = run_fn_locked_target_list(false, self, function(target_list)
+  local ok, err = locking_target_list(self, function(target_list)
     self.targets = target_list
     for _, target in ipairs(self.targets) do
       local state_key = key_for(self.TARGET_STATE, target.ip, target.port, target.hostname)
       target.status = INTERNAL_STATES[self.shm:get(state_key)]
       if not target.hostheader then
-          target.hostheader = nil
+        target.hostheader = nil
       end
     end
 
@@ -1619,7 +1707,8 @@ function _M.get_target_list(name, shm_name)
   end)
 
   for _, target in ipairs(self.targets) do
-    local ok = run_mutexed_fn(false, self, target.ip, target.port, target.hostname, function()
+    local key = key_for(self.TARGET_LOCK, target.ip, target.port, target.hostname)
+    local ok = run_locked(self, key, function()
       local counter = self.shm:get(key_for(self.TARGET_COUNTER,
         target.ip, target.port, target.hostname))
       target.counter = {
