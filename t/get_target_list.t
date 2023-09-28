@@ -75,3 +75,4 @@ qq{
     }
 --- request
 GET /t
+--- timeout: 5

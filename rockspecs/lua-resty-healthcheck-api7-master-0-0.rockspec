@@ -17,8 +17,8 @@ description = {
 }
 
 dependencies = {
-   "lua-resty-worker-events = 1.0.0",
-   "penlight ~> 1.7",
+   "lua-resty-worker-events  ~> 2",
+   "penlight >= 1.7.0",
    "lua-resty-timer ~> 1"
 }
 build = {
