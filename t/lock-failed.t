@@ -75,5 +75,5 @@ qq{
 --- request
 GET /t
 --- error_log
-failed to acquire lock for 'lua-resty-healthcheck:testing:target_list_lock': timeout
+failed acquiring lock for 'lua-resty-healthcheck:testing:target_list_lock', timeout
 --- timeout: 10
