@@ -5,7 +5,7 @@ LUA_INCLUDE_DIR ?= $(PREFIX)/include
 LUA_LIB_DIR ?=     $(PREFIX)/lib/lua/$(LUA_VERSION)
 INSTALL ?= install
 
-.PHONY: all test install deps
+.PHONY: all test install
 
 all: ;
 
@@ -16,5 +16,3 @@ install: all
 test: all
 	PATH=$(OPENRESTY_PREFIX)/nginx/sbin:$$PATH prove -I../test-nginx/lib -r t
 
-deps:
-	luarocks install rockspecs/lua-resty-healthcheck-api7-master-0-0.rockspec --only-deps
