@@ -501,7 +501,7 @@ qq{
                 test = true,
                 name = "testing",
                 shm_name = "test_shm",
-events_module = "resty.events",
+                events_module = "resty.events",
                 type = "http",
                 checks = {
                     active = {

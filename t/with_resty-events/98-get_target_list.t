@@ -104,6 +104,9 @@ GET /t
 qq{
     $::HttpConfig
 
+    # ignore lua tcp socket read timed out
+    lua_socket_log_errors off;
+
     server {
         listen 2116;
         location = /status {
@@ -158,3 +161,4 @@ qq{
 GET /t
 --- no_error_log
 [error]
+--- timeout: 5
