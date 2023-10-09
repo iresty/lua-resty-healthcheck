@@ -42,7 +42,7 @@ qq{
                         healthy  = {
                             interval = 0.1
                         },
-                        headers = {"User-Agent: curl/7.29.0"}
+                        req_headers = {"User-Agent: curl/7.29.0"}
                     }
                 }
             })
@@ -92,7 +92,7 @@ qq{
                         healthy  = {
                             interval = 0.1
                         },
-                        headers = {"User-Agent: curl"}
+                        req_headers = {"User-Agent: curl"}
                     }
                 }
             })
@@ -141,7 +141,7 @@ qq{
                         healthy  = {
                             interval = 0.1
                         },
-                        headers = { ["User-Agent"] = "curl" }
+                        req_headers = { ["User-Agent"] = "curl" }
                     }
                 }
             })
@@ -191,7 +191,7 @@ qq{
                         healthy  = {
                             interval = 0.1
                         },
-                        headers = { ["User-Agent"] = {"curl"} }
+                        req_headers = { ["User-Agent"] = {"curl"} }
                     }
                 }
             })
@@ -241,7 +241,7 @@ qq{
                         healthy  = {
                             interval = 0.1
                         },
-                        headers = { ["User-Agent"] = {"curl", "nginx"} }
+                        req_headers = { ["User-Agent"] = {"curl", "nginx"} }
                     }
                 }
             })
