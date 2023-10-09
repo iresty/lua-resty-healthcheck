@@ -1804,11 +1804,62 @@ function _M.new(opts)
 end
 
 
-if TESTING then
-  checker._run_locked = run_locked
-  checker._set_lock_timeout = function(t)
-    LOCK_TIMEOUT = t
+function _M.get_target_list(name, shm_name)
+  local self = {
+    name = name,
+    shm_name = shm_name,
+    log = checker.log,
+  }
+  self.shm = ngx.shared[tostring(shm_name)]
+  assert(self.shm, ("no shm found by name '%s'"):format(shm_name))
+  self.TARGET_STATE     = SHM_PREFIX .. self.name .. ":state"
+  self.TARGET_COUNTER   = SHM_PREFIX .. self.name .. ":counter"
+  self.TARGET_LIST      = SHM_PREFIX .. self.name .. ":target_list"
+  self.TARGET_LIST_LOCK = SHM_PREFIX .. self.name .. ":target_list_lock"
+  self.LOG_PREFIX       = LOG_PREFIX .. "(" .. self.name .. ") "
+
+  local ok, err = locking_target_list(self, function(target_list)
+    self.targets = target_list
+    for _, target in ipairs(self.targets) do
+      local state_key = key_for(self.TARGET_STATE, target.ip, target.port, target.hostname)
+      target.status = INTERNAL_STATES[self.shm:get(state_key)]
+      if not target.hostheader then
+        target.hostheader = nil
+      end
+    end
+
+    return true
+  end)
+
+  for _, target in ipairs(self.targets) do
+    local key = key_for(self.TARGET_LOCK, target.ip, target.port, target.hostname)
+    local ok = run_locked(self, key, function()
+      local counter = self.shm:get(key_for(self.TARGET_COUNTER,
+        target.ip, target.port, target.hostname))
+      target.counter = {
+        success = ctr_get(counter, CTR_SUCCESS),
+        http_failure = ctr_get(counter, CTR_HTTP),
+        tcp_failure = ctr_get(counter, CTR_TCP),
+        timeout_failure = ctr_get(counter, CTR_TIMEOUT),
+      }
+      return true
+    end)
+
+    if not ok then
+      target.counter = {
+        success = 0,
+        http_failure = 0,
+        tcp_failure = 0,
+        timeout_failure = 0,
+      }
+    end
   end
+
+  if not ok then
+    return nil, "Error loading target list: " .. err
+  end
+
+  return self.targets
 end
 
 
