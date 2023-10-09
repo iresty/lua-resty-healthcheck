@@ -485,8 +485,9 @@ end
 -- default is `true`.
 -- @param hostheader (optional) a value to use for the Host header on
 -- active healthchecks.
+-- @param tbl_meta (optional) a lua table with custom info of business stuff
 -- @return `true` on success, or `nil + error` on failure.
-function checker:add_target(ip, port, hostname, is_healthy, hostheader)
+function checker:add_target(ip, port, hostname, is_healthy, hostheader, tbl_meta)
   ip = tostring(assert(ip, "no ip address provided"))
   port = assert(tonumber(port), "no port number provided")
   hostname = hostname or ip
@@ -531,6 +532,7 @@ function checker:add_target(ip, port, hostname, is_healthy, hostheader)
         port = port,
         hostname = hostname,
         hostheader = hostheader,
+        meta = tbl_meta,
       }
     end
     target_list = serialize(target_list)
@@ -1272,6 +1274,7 @@ local function checker_callback(self, health_mode)
         port = target.port,
         hostname = target.hostname,
         hostheader = target.hostheader,
+        meta = target.meta,
         debug_health = internal_health,
       }
     end
