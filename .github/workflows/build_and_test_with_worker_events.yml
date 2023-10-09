@@ -62,8 +62,3 @@ jobs:
           eval `luarocks path`
           eval $(perl -I $HOME/perl5/lib/perl5/ -Mlocal::lib)
           TEST_NGINX_RANDOMIZE=1 prove -I. -r t/with_worker-events
-
-      - name: Run debugger
-        if: ${{ failure() }}
-        uses: mxschmitt/action-tmate@v3
-        timeout-minutes: 15
