@@ -1668,7 +1668,7 @@ function _M.new(opts)
   self.TARGET_LIST      = SHM_PREFIX .. self.name .. ":target_list"
   self.TARGET_LIST_LOCK = SHM_PREFIX .. self.name .. ":target_list_lock"
   self.TARGET_LOCK      = SHM_PREFIX .. self.name .. ":target_lock"
-  self.PERIODIC_LOCK    = SHM_PREFIX .. ":period_lock:"
+  self.PERIODIC_LOCK    = SHM_PREFIX .. self.name .. ":period_lock"
   -- prepare constants
   self.EVENT_SOURCE     = EVENT_SOURCE_PREFIX .. " [" .. self.name .. "]"
   self.LOG_PREFIX       = LOG_PREFIX .. "(" .. self.name .. ") "
@@ -1739,6 +1739,7 @@ function _M.new(opts)
           active_check_timer.interval = CHECK_INTERVAL * 10
           return
         end
+
 
         local cur_time = ngx_now()
         for _, checker_obj in pairs(hcs) do
