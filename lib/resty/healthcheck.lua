@@ -1740,7 +1740,6 @@ function _M.new(opts)
           return
         end
 
-
         local cur_time = ngx_now()
         for _, checker_obj in pairs(hcs) do
 
