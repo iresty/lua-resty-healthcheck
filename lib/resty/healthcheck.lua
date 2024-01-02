@@ -1169,10 +1169,16 @@ function checker:run_single_check(ip, port, hostname, hostheader)
         end
     until re_find(line, "^\\s*$", "jo")
     if content_length then
-      local str, err, partial = sock:receive(content_length)
-      if str == self.checks.active.body_match_str then
-        sock:close()
-        return self:report_http_status(ip, port, hostname, status, "active")
+      content_length = tonumber(content_length)
+      if content_length <= 4096 then
+        local str, err, partial = sock:receive(content_length)
+        if str == self.checks.active.body_match_str then
+          sock:close()
+          return self:report_http_status(ip, port, hostname, status, "active")
+        else
+          sock:close()
+          return self:report_tcp_failure(ip, port, hostname, "receive", "active")
+        end
       else
         sock:close()
         return self:report_tcp_failure(ip, port, hostname, "receive", "active")
