@@ -37,6 +37,7 @@ local ssl = require("ngx.ssl")
 local resty_timer = require "resty.timer"
 local bit = require("bit")
 local re_find = ngx.re.find
+local ngx_re_match = ngx.re.match
 local ngx_now = ngx.now
 local ngx_worker_id = ngx.worker.id
 local ngx_worker_pid = ngx.worker.pid
@@ -1149,6 +1150,45 @@ function checker:run_single_check(ip, port, hostname, hostheader)
     self:log(ERR, "bad status line from '", hostname, " (", ip, ":", port, ")': ", status_line)
     -- note: 'status' will be reported as 'nil'
   end
+  if self.checks.active.body_match_str ~= "" then
+    local content_length
+    repeat
+        local line, err = sock:receive()
+        if not line then
+            return nil, err
+        end
+
+        local m, err = ngx_re_match(line, "([^:\\s]+):\\s*(.*)", "jo")
+        if err then ngx_log(ERR, err) end
+
+        if not m then
+            break
+        end
+        if m[1] == "content-length" then
+          content_length = m[2]
+        end
+    until re_find(line, "^\\s*$", "jo")
+    if content_length then
+      content_length = tonumber(content_length)
+      if content_length <= 4096 then
+        local str, err, partial = sock:receive(content_length)
+        if str == self.checks.active.body_match_str then
+          sock:close()
+          return self:report_http_status(ip, port, hostname, status, "active")
+        else
+          sock:close()
+          return self:report_tcp_failure(ip, port, hostname, "receive", "active")
+        end
+      else
+        sock:close()
+        return self:report_tcp_failure(ip, port, hostname, "receive", "active")
+      end
+    else
+      sock:close()
+      return self:report_tcp_failure(ip, port, hostname, "receive", "active")
+    end
+  end
+
 
   sock:close()
 
@@ -1507,6 +1547,7 @@ local defaults = {
         http_failures = 5,
       },
       req_headers = {""},
+      body_match_str = "",
     },
     passive = {
       type = "http",
